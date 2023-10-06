@@ -20,7 +20,7 @@ Instructions to Run the Project
 1. Edit the source code in the src/ directory.
 2. Compile the application and the virtual cable program using the provided Makefile.
 3. Run the virtual cable program (either by running the executable manually or using the Makefile target):
-	$ sudo ./bin/cable_app
+	$ sudo ./bin/cable
 	$ sudo make run_cable
 
 4. Test the protocol without cable disconnections and noise
