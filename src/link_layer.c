@@ -47,6 +47,7 @@ int alarmEnabled = FALSE;
 int alarmCount = 0;
 int nRetransmissions;
 int timeout;
+LinkLayerRole role;
 
 void alarmHandler(int signal) {
     alarmEnabled = FALSE;
@@ -150,7 +151,8 @@ int llopen(LinkLayer connectionParameters) {
     int tries = nRetransmissions;
 
     timeout = connectionParameters.timeout;
-
+    role = connectionParameters.role;
+    
     State state = START_STATE;
     unsigned char a_check;
     unsigned char c_check;
@@ -332,16 +334,16 @@ int llread(unsigned char *packet) {
 ////////////////////////////////////////////////
 int llclose(int showStatistics) {
     
-    LinkLayerState state = START_STATE;
+    State state = START_STATE;
     unsigned char a_check;
     unsigned char c_check;
 
     int tries = nRetransmissions;
 
-    if (connectionParameters.role == LlTx) {
-        unsigned char buffer[5] = {FLAG, A, C_DISC, A ^ C_DISC, FLAG};
+    if (role == LlTx) {
+        unsigned char bufferDisc[5] = {FLAG, A, C_DISC, A ^ C_DISC, FLAG};
         do {
-            write(fd, buffer, sizeof(buffer));
+            write(fd, bufferDisc, sizeof(bufferDisc));
             alarm(timeout);
             alarmEnabled = TRUE;
             while (alarmEnabled == TRUE && state != STOP_STATE)
@@ -355,15 +357,19 @@ int llclose(int showStatistics) {
             alarmEnabled = TRUE;
         } while (tries > 0 && state != STOP_STATE);
 
-        unsigned char buffer[5] = {FLAG, A, C_UA, A ^ C_UA, FLAG};
-        write(fd, buffer, sizeof(buffer));
+        unsigned char bufferUa[5] = {FLAG, A, C_UA, A ^ C_UA, FLAG};
+        write(fd, bufferUa, sizeof(bufferUa));
 
-    } else if (connectionParameters.role == LlRx) {
+    } else if (role == LlRx) {
         while (state != STOP_STATE) {
             processByte(fd, C_DISC, &a_check, &c_check, &state);
         }
         unsigned char buffer[5] = {FLAG, A, C_DISC, A ^ C_DISC, FLAG};
         write(fd, buffer, sizeof(buffer));
+        /*state = START_STATE;
+        while (state != STOP_STATE) {
+            processByte(fd, C_UA, &a_check, &c_check, &state);
+        }*/
     } else {
         perror("connectionParameters.role");
         exit(-1);
