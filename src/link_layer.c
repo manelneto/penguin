@@ -331,7 +331,44 @@ int llread(unsigned char *packet) {
 // LLCLOSE
 ////////////////////////////////////////////////
 int llclose(int showStatistics) {
-    // TODO
+    
+    LinkLayerState state = START_STATE;
+    unsigned char a_check;
+    unsigned char c_check;
 
-    return 1;
+    int tries = nRetransmissions;
+
+    if (connectionParameters.role == LlTx) {
+        unsigned char buffer[5] = {FLAG, A, C_DISC, A ^ C_DISC, FLAG};
+        do {
+            write(fd, buffer, sizeof(buffer));
+            alarm(timeout);
+            alarmEnabled = TRUE;
+            while (alarmEnabled == TRUE && state != STOP_STATE)
+                processByte(fd, C_DISC, &a_check, &c_check, &state);
+            if (state == STOP_STATE) {
+                alarm(0);
+                alarmEnabled = FALSE;
+            }
+            printf("nRetransmissions: %d\n", nRetransmissions);
+            tries--;
+            alarmEnabled = TRUE;
+        } while (tries > 0 && state != STOP_STATE);
+
+        unsigned char buffer[5] = {FLAG, A, C_UA, A ^ C_UA, FLAG};
+        write(fd, buffer, sizeof(buffer));
+
+    } else if (connectionParameters.role == LlRx) {
+        while (state != STOP_STATE) {
+            processByte(fd, C_DISC, &a_check, &c_check, &state);
+        }
+        unsigned char buffer[5] = {FLAG, A, C_DISC, A ^ C_DISC, FLAG};
+        write(fd, buffer, sizeof(buffer));
+    } else {
+        perror("connectionParameters.role");
+        exit(-1);
+    }
+
+    close(fd);
+    return 0;
 }
