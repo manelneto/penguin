@@ -1,17 +1,19 @@
 // Application layer protocol implementation
 
 #include "application_layer.h"
-#include "link_layer.h"
+
+#include <stdlib.h>
 #include <string.h>
 
-void applicationLayer(const char *serialPort, const char *role, int baudRate, int nTries, int timeout, const char *filename)
-{
+#include "link_layer.h"
+
+void applicationLayer(const char *serialPort, const char *role, int baudRate, int nTries, int timeout, const char *filename) {
     // TODO
     LinkLayer connectionParameters;
     strcpy(connectionParameters.serialPort, serialPort);
-    if (strcmp(role, "tx") == 0) // role == "tx"
+    if (strcmp(role, "tx") == 0)  // role == "tx"
         connectionParameters.role = LlTx;
-    else if (strcmp(role, "rx") == 0) // role == "rx"
+    else if (strcmp(role, "rx") == 0)  // role == "rx"
         connectionParameters.role = LlRx;
     else
         return;
@@ -19,8 +21,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
     connectionParameters.nRetransmissions = nTries;
     connectionParameters.timeout = timeout;
     llopen(connectionParameters);
-    unsigned char buf[5] = {0x00, 0x01, 0x02, 0x03, 0x04}; //, 0x05, 0x06, 0x07, 0x08, 0xA0};
-    llwrite(buf, 5);
-    llread(buf);
+    if (connectionParameters.role == LlTx) {
+        unsigned char buf[5] = {0x2A, 0x3B, 0x4C, 0x5D, 0x7E};
+        llwrite(buf, 5);
+    } else if (connectionParameters.role == LlRx) {
+        unsigned char *buf = (unsigned char *)malloc(5);
+        llread(buf);
+    }
     llclose(0);
 }
