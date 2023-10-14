@@ -39,6 +39,7 @@ typedef enum {
     A_RCV_STATE,
     C_RCV_STATE,
     BCC_OK_STATE,
+    DATA_STATE,
     STOP_STATE
 } State;
 
@@ -324,7 +325,88 @@ int llwrite(const unsigned char *buf, int bufSize) {
 // LLREAD
 ////////////////////////////////////////////////
 int llread(unsigned char *packet) {
-    // TODO
+    
+    State state = START_STATE;
+    unsigned char byte_read;
+    unsigned char a_check;
+    unsigned char c_check;
+    int escFound = FALSE;
+    int index=0;
+
+    while(state != STOP_STATE){
+        if (read(fd, &byte_read, sizeof(byte_read)) == sizeof(byte_read)) {
+                printf("Byte read: 0x%0x\n", byte_read);
+                switch (state) {
+                    case START_STATE:
+                        printf("START_STATE\n");
+                        if (byte_read == FLAG) state = FLAG_RCV_STATE;
+                        else state = START_STATE;
+                        break;
+                    case FLAG_RCV_STATE:
+                        printf("FLAG_RCV_STATE\n");
+                        if (byte_read == FLAG) state = FLAG_RCV_STATE;
+                        else if (byte_read == A) {
+                            a_check = byte_read;
+                            state = A_RCV_STATE;
+                        } else state = START_STATE;
+                        break;
+                    case A_RCV_STATE:
+                        printf("A_RCV_STATE\n");
+                        if (byte_read == FLAG) state = FLAG_RCV_STATE;
+                        else if (byte_read == N_0 || byte_read == N_1) {
+                            c_check = byte_read;
+                            state = C_RCV_STATE;
+                        } else state = START_STATE;
+                        break;
+                    case C_RCV_STATE:
+                        printf("C_RCV_STATE\n");
+                        if (byte_read == FLAG) state = FLAG_RCV_STATE;
+                        else if (byte_read == (a_check ^ c_check)) state = DATA_STATE;
+                        else state = START_STATE;
+                        break;
+                    case DATA_STATE:
+                        printf("DATA_STATE\n");
+                        if (escFound) {
+                            escFound = FALSE; 
+                           
+                            if (byte_read == ESC || byte_read == FLAG) packet[index++] = byte_read;
+                            else {
+                                packet[index++] = ESC;
+                                packet[index++] = byte_read;
+                            }
+                        } 
+                        else if (byte_read == ESC) {
+                            escFound = TRUE;
+                        } 
+                        else if (byte_read == FLAG) {
+                            unsigned char bcc2 = packet[index-1];
+                            index--;
+                            packet[index] = '\0';
+                            unsigned char bcc2Acc = packet[0];
+
+                            for (unsigned int i = 1; i < index; i++){
+                                bcc2Acc ^= packet[i];
+                            }
+                            if (bcc2 == bcc2Acc){ //success
+                                unsigned char bufferRr[5] = {FLAG, A, C_RR(1), A ^ C_RR(1), FLAG};
+                                write(fd, bufferRr, sizeof(bufferRr));
+                                state = STOP_STATE;
+                            }
+                            else { //error
+                                unsigned char bufferRej[5] = {FLAG, A, C_REJ(1), A ^ C_REJ(1), FLAG};
+                                write(fd, bufferRej, sizeof(bufferRej));
+                                return 1;
+                            }
+                        } 
+                        else {
+                            packet[index++] = byte_read;
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+    }
 
     return 0;
 }

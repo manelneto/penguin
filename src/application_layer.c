@@ -19,7 +19,8 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
     connectionParameters.nRetransmissions = nTries;
     connectionParameters.timeout = timeout;
     llopen(connectionParameters);
-    //unsigned char buf[5] = {0x00, 0x01, 0x02, 0x03, 0x04}; //, 0x05, 0x06, 0x07, 0x08, 0xA0};
-    //llwrite(buf, 5);
+    unsigned char buf[5] = {0x00, 0x01, 0x02, 0x03, 0x04}; //, 0x05, 0x06, 0x07, 0x08, 0xA0};
+    llwrite(buf, 5);
+    llread(buf);
     llclose(0);
 }
