@@ -22,11 +22,15 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
     connectionParameters.timeout = timeout;
     llopen(connectionParameters);
     if (connectionParameters.role == LlTx) {
-        unsigned char buf[5] = {0x2A, 0x3B, 0x4C, 0x5D, 0x7E};
-        llwrite(buf, 5);
+        unsigned char buf1[5] = {0x1A, 0x2B, 0x3C, 0x4D, 0x5E};
+        llwrite(buf1, 5);
+        //unsigned char buf2[5] = {0x2A, 0x3B, 0x4C, 0x5D, 0x6E};
+        //llwrite(buf2, 5);
     } else if (connectionParameters.role == LlRx) {
-        unsigned char *buf = (unsigned char *)malloc(5);
-        llread(buf);
+        unsigned char *buf1 = (unsigned char *)malloc(5);
+        while (llread(buf1));
+        //unsigned char *buf2 = (unsigned char *)malloc(5);
+        //llread(buf2);
     }
     llclose(0);
 }

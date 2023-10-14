@@ -258,8 +258,11 @@ int llwrite(const unsigned char *buf, int bufSize) {
         printf("\n");
         alarm(timeout);
         alarmEnabled = TRUE;
+        rejectedCheck = FALSE;
+        accepetedCheck = FALSE;
         while (alarmEnabled == TRUE && rejectedCheck == FALSE && accepetedCheck == FALSE) {
             // state machine
+            state = START_STATE;
             while (state != STOP_STATE && alarmEnabled == TRUE) {
                 if (read(fd, &byte_read, sizeof(byte_read)) == sizeof(byte_read)) {
                     printf("llwrite: Tx read 0x%0x\n", byte_read);
@@ -321,13 +324,10 @@ int llwrite(const unsigned char *buf, int bufSize) {
                 rejectedCheck = TRUE;
             }
         }
-        if (accepetedCheck == TRUE) {
-            break;
-        }
         printf("tries: %d\n", tries);
         tries--;
         alarmEnabled = TRUE;
-    } while (tries > 0 && state != STOP_STATE);
+    } while (tries > 0 && accepetedCheck == FALSE);
 
     free(dataBcc2);
     free(frame);
@@ -410,13 +410,13 @@ int llread(unsigned char *packet) {
                             bcc2Acc ^= packet[i];
                         }
                         if (bcc2 == bcc2Acc) {  // success
-                            printf("success\n");
+                            printf("SUCCESS\n");
                             unsigned char rr = c_check == N_0 ? C_RR(1) : C_RR(0);
                             unsigned char bufferRr[5] = {FLAG, A, rr, A ^ rr, FLAG};
                             write(fd, bufferRr, sizeof(bufferRr));
                             state = STOP_STATE;
                         } else {  // error
-                            printf("error\n");
+                            printf("ERROR\n");
                             unsigned char rej = c_check == N_0 ? C_REJ(0) : C_REJ(1);
                             unsigned char bufferRej[5] = {FLAG, A, rej, A ^ rej, FLAG};
                             write(fd, bufferRej, sizeof(bufferRej));
