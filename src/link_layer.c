@@ -19,6 +19,7 @@
 
 #define FLAG 0x7E
 #define A 0x03
+#define A_CLOSE 0x01
 #define C_SET 0x03
 #define C_DISC 0x0B
 #define C_UA 0x07
@@ -467,19 +468,16 @@ int llclose(int showStatistics) {
             alarmEnabled = TRUE;
         } while (tries > 0 && state != STOP_STATE);
 
-        unsigned char bufferUa[5] = {FLAG, A, C_UA, A ^ C_UA, FLAG};
+        unsigned char bufferUa[5] = {FLAG, A_CLOSE, C_UA, A_CLOSE ^ C_UA, FLAG};
         write(fd, bufferUa, sizeof(bufferUa));
 
     } else if (role == LlRx) {
         while (state != STOP_STATE) {
             processByte(fd, C_DISC, &a_check, &c_check, &state);
         }
-        unsigned char buffer[5] = {FLAG, A, C_DISC, A ^ C_DISC, FLAG};
+        unsigned char buffer[5] = {FLAG, A_CLOSE, C_DISC, A_CLOSE ^ C_DISC, FLAG};
         write(fd, buffer, sizeof(buffer));
-        /*state = START_STATE;
-        while (state != STOP_STATE) {
-            processByte(fd, C_UA, &a_check, &c_check, &state);
-        }*/
+
     } else {
         perror("connectionParameters.role");
         exit(-1);
