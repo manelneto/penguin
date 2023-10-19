@@ -51,6 +51,14 @@ int nRetransmissions;
 int timeout;
 LinkLayerRole role;
 
+void printA(char *title, int titleSize, unsigned char *content, int contentSize) {
+    // debug only
+    printf("\n");
+    for (int i = 0; i < titleSize; i++) printf("%c ", title[i]);
+    for (int i = 0; i < contentSize; i++) printf("0x%x ", content[i]);
+    printf("\n");
+}
+
 void alarmHandler(int signal) {
     alarmEnabled = FALSE;
     alarmCount++;
@@ -61,20 +69,20 @@ void processByte(int fd, unsigned char actual_c, unsigned char *a_check, unsigne
     unsigned char byte_read;
 
     if (read(fd, &byte_read, sizeof(byte_read)) == sizeof(byte_read)) {
-        if (role == LlTx)
+        /*if (role == LlTx)
             printf("Tx read: 0x%0x\n", byte_read);
         else if (role == LlRx)
             printf("Rx read: 0x%0x\n", byte_read);
-        switch (*state) {
+        */switch (*state) {
             case START_STATE:
-                //printf("START_STATE\n");
+                // printf("START_STATE\n");
                 if (byte_read == FLAG)
                     *state = FLAG_RCV_STATE;
                 else
                     *state = START_STATE;
                 break;
             case FLAG_RCV_STATE:
-                //printf("FLAG_RCV_STATE\n");
+                // printf("FLAG_RCV_STATE\n");
                 if (byte_read == FLAG)
                     *state = FLAG_RCV_STATE;
                 else if (byte_read == A) {
@@ -84,7 +92,7 @@ void processByte(int fd, unsigned char actual_c, unsigned char *a_check, unsigne
                     *state = START_STATE;
                 break;
             case A_RCV_STATE:
-                //printf("A_RCV_STATE\n");
+                // printf("A_RCV_STATE\n");
                 if (byte_read == FLAG)
                     *state = FLAG_RCV_STATE;
                 else if (byte_read == actual_c) {
@@ -94,7 +102,7 @@ void processByte(int fd, unsigned char actual_c, unsigned char *a_check, unsigne
                     *state = START_STATE;
                 break;
             case C_RCV_STATE:
-                //printf("C_RCV_STATE\n");
+                // printf("C_RCV_STATE\n");
                 if (byte_read == FLAG)
                     *state = FLAG_RCV_STATE;
                 else if (byte_read == (*a_check ^ *c_check))
@@ -103,7 +111,7 @@ void processByte(int fd, unsigned char actual_c, unsigned char *a_check, unsigne
                     *state = START_STATE;
                 break;
             case BCC_OK_STATE:
-                //printf("BCC_OK_STATE\n");
+                // printf("BCC_OK_STATE\n");
                 if (byte_read == FLAG)
                     *state = STOP_STATE;
                 else
@@ -174,7 +182,7 @@ int llopen(LinkLayer connectionParameters) {
                 alarm(0);
                 alarmEnabled = FALSE;
             }
-            printf("tries: %d\n", tries);
+            printf("\nLLOPEN tries: %d\n", tries);
             tries--;
             alarmEnabled = TRUE;
         } while (tries > 0 && state != STOP_STATE);
@@ -254,9 +262,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
     unsigned char c_check;
     do {
         write(fd, frame, index + 5);
-        printf("llwrite: Tx sent ");
-        for (unsigned i = 0; i < index + 5; i++) printf("0x%x ", frame[i]);
-        printf("\n");
+        printA("Transmissor enviou: ", 21, frame, index + 5);
         alarm(timeout);
         alarmEnabled = TRUE;
         rejectedCheck = FALSE;
@@ -266,17 +272,16 @@ int llwrite(const unsigned char *buf, int bufSize) {
             state = START_STATE;
             while (state != STOP_STATE && alarmEnabled == TRUE) {
                 if (read(fd, &byte_read, sizeof(byte_read)) == sizeof(byte_read)) {
-                    printf("llwrite: Tx read 0x%0x\n", byte_read);
                     switch (state) {
                         case START_STATE:
-                            //printf("Tx is in START_STATE\n");
+                            // printf("Tx is in START_STATE\n");
                             if (byte_read == FLAG)
                                 state = FLAG_RCV_STATE;
                             else
                                 state = START_STATE;
                             break;
                         case FLAG_RCV_STATE:
-                            //printf("Tx is in FLAG_RCV_STATE\n");
+                            // printf("Tx is in FLAG_RCV_STATE\n");
                             if (byte_read == FLAG)
                                 state = FLAG_RCV_STATE;
                             else if (byte_read == A) {
@@ -286,7 +291,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
                                 state = START_STATE;
                             break;
                         case A_RCV_STATE:
-                            //printf("Tx is in A_RCV_STATE\n");
+                            // printf("Tx is in A_RCV_STATE\n");
                             if (byte_read == FLAG)
                                 state = FLAG_RCV_STATE;
                             else if (byte_read == C_RR(0) || byte_read == C_RR(1) || byte_read == C_REJ(0) || byte_read == C_REJ(1)) {
@@ -296,7 +301,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
                                 state = START_STATE;
                             break;
                         case C_RCV_STATE:
-                            //printf("Tx is in C_RCV_STATE\n");
+                            // printf("Tx is in C_RCV_STATE\n");
                             if (byte_read == FLAG)
                                 state = FLAG_RCV_STATE;
                             else if (byte_read == (a_check ^ c_check))
@@ -305,7 +310,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
                                 state = START_STATE;
                             break;
                         case BCC_OK_STATE:
-                            //printf("Tx is in BCC_OK_STATE\n");
+                            // printf("Tx is in BCC_OK_STATE\n");
                             if (byte_read == FLAG)
                                 state = STOP_STATE;
                             else
@@ -325,7 +330,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
                 rejectedCheck = TRUE;
             }
         }
-        printf("tries: %d\n", tries);
+        printf("\nLLWRITE tries: %d\n", tries);
         tries--;
         alarmEnabled = TRUE;
     } while (tries > 0 && accepetedCheck == FALSE);
@@ -348,17 +353,16 @@ int llread(unsigned char *packet) {
 
     while (state != STOP_STATE) {
         if (read(fd, &byte_read, sizeof(byte_read)) == sizeof(byte_read)) {
-            printf("llread: Rx read 0x%0x\n", byte_read);
             switch (state) {
                 case START_STATE:
-                    //printf("Rx is in START_STATE\n");
+                    // printf("Rx is in START_STATE\n");
                     if (byte_read == FLAG)
                         state = FLAG_RCV_STATE;
                     else
                         state = START_STATE;
                     break;
                 case FLAG_RCV_STATE:
-                    //printf("Rx is in FLAG_RCV_STATE\n");
+                    // printf("Rx is in FLAG_RCV_STATE\n");
                     if (byte_read == FLAG)
                         state = FLAG_RCV_STATE;
                     else if (byte_read == A) {
@@ -368,7 +372,7 @@ int llread(unsigned char *packet) {
                         state = START_STATE;
                     break;
                 case A_RCV_STATE:
-                    //printf("Rx is in A_RCV_STATE\n");
+                    // printf("Rx is in A_RCV_STATE\n");
                     if (byte_read == FLAG)
                         state = FLAG_RCV_STATE;
                     else if (byte_read == N_0 || byte_read == N_1) {
@@ -378,7 +382,7 @@ int llread(unsigned char *packet) {
                         state = START_STATE;
                     break;
                 case C_RCV_STATE:
-                    //printf("Rx is in C_RCV_STATE\n");
+                    // printf("Rx is in C_RCV_STATE\n");
                     if (byte_read == FLAG)
                         state = FLAG_RCV_STATE;
                     else if (byte_read == (a_check ^ c_check))
@@ -387,7 +391,7 @@ int llread(unsigned char *packet) {
                         state = START_STATE;
                     break;
                 case DATA_STATE:
-                    //printf("Rx is in DATA_STATE\n");
+                    // printf("Rx is in DATA_STATE\n");
                     if (escFound) {
                         escFound = FALSE;
 
@@ -401,23 +405,18 @@ int llread(unsigned char *packet) {
                         unsigned char bcc2 = packet[index - 1];
                         index--;
                         packet[index] = '\0';
-
-                        printf("Rx packet ");
-                        for (int i = 0; i < index; i++) printf("0x%x ", packet[i]);
-
+                        printA("Link: Recetor recebeu: ", 18, packet, index);
                         unsigned char bcc2Acc = packet[0];
-
                         for (unsigned int i = 1; i < index; i++) {
                             bcc2Acc ^= packet[i];
                         }
                         if (bcc2 == bcc2Acc) {  // success
-                            printf("SUCCESS\n");
                             unsigned char rr = c_check == N_0 ? C_RR(1) : C_RR(0);
                             unsigned char bufferRr[5] = {FLAG, A, rr, A ^ rr, FLAG};
                             write(fd, bufferRr, sizeof(bufferRr));
                             state = STOP_STATE;
                         } else {  // error
-                            printf("ERROR BCC2\n");
+                            printf("\n--BCC2--\n");
                             unsigned char rej = c_check == N_0 ? C_REJ(0) : C_REJ(1);
                             unsigned char bufferRej[5] = {FLAG, A, rej, A ^ rej, FLAG};
                             write(fd, bufferRej, sizeof(bufferRej));
@@ -433,11 +432,6 @@ int llread(unsigned char *packet) {
             }
         }
     }
-
-    printf("Rx received ");
-    for (int i = 0; i < index; i++) printf("0x%x ", packet[i]);
-    printf("\n");
-
     return 0;
 }
 
@@ -463,7 +457,7 @@ int llclose(int showStatistics) {
                 alarm(0);
                 alarmEnabled = FALSE;
             }
-            printf("tries: %d\n", tries);
+            printf("\nLLCLOSE tries: %d\n", tries);
             tries--;
             alarmEnabled = TRUE;
         } while (tries > 0 && state != STOP_STATE);

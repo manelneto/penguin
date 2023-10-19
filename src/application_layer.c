@@ -2,18 +2,25 @@
 
 #include "application_layer.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #include <sys/stat.h>
-
 
 #include "link_layer.h"
 
 #define CONTROL_PACKET_START 0x02
 #define CONTROL_PACKET_END 0x03
 #define DATA_PACKET 0x01
-#define MAX_DATA_SIZE 5
+#define MAX_DATA_SIZE 1
+
+void print(char *title, int titleSize, unsigned char *content, int contentSize) {
+    // debug only
+    printf("\n");
+    for (int i = 0; i < titleSize; i++) printf("%c ", title[i]);
+    for (int i = 0; i < contentSize; i++) printf("0x%x ", content[i]);
+    printf("\n");
+}
 
 int logaritmo2(int n) {
     int res = 0;
@@ -25,58 +32,47 @@ int logaritmo2(int n) {
 }
 
 unsigned char *buildControlPackets(long int fileSize, const char *fileName, unsigned char controlField, int *packetSize) {
-
-    int fileSizeLength = (int) (logaritmo2(fileSize) / 8.0) + 1 ; //bytes necessários para representar o tamanho do ficheiro -- +1 para arrendondar para cima
+    int fileSizeLength = (int)(logaritmo2(fileSize) / 8.0) + 1;  // bytes necessários para representar o tamanho do ficheiro -- +1 para arrendondar para cima
 
     int fileNameLength = strlen(fileName);
-    *packetSize = 5 + fileSizeLength + fileNameLength; // 5 -> C + T1 + L1 + T2 + L2
-    unsigned char *controlPacket = (unsigned char *) malloc(*packetSize);
+    *packetSize = 5 + fileSizeLength + fileNameLength;  // 5 -> C + T1 + L1 + T2 + L2
+    unsigned char *controlPacket = (unsigned char *)malloc(*packetSize);
 
     controlPacket[0] = controlField;
-    controlPacket[1] = 0;  // File size parameter
+    controlPacket[1] = 0;               // File size parameter
     controlPacket[2] = fileSizeLength;  // File size length
     int index;
-    for(index = 3; index < (fileSizeLength + 3); index++){
+    for (index = 3; index < (fileSizeLength + 3); index++) {
         unsigned leftmost = fileSize & 0xFF << (fileSizeLength - 1) * 8;
         leftmost >>= (fileSizeLength - 1) * 8;
         fileSize <<= 8;
         controlPacket[index] = leftmost;
     }
-    controlPacket[++index] = 1;  // File name parameter
-    controlPacket[++index] = fileNameLength;  // File name 
+    controlPacket[++index] = 1;               // File name parameter
+    controlPacket[++index] = fileNameLength;  // File name
     memcpy(controlPacket + index, fileName, fileNameLength);
 
-    for (unsigned i = 0; i < *packetSize; i++) printf("0x%x\n", controlPacket[i]);
+    print("Pacote de Controlo: ", 20, controlPacket, *packetSize);
 
     return controlPacket;
 }
 
 unsigned char *buildDataPackets(int dataSize, unsigned char *data, int *packetSize) {
     *packetSize = dataSize + 3;  // 3 -> C + L2 + L1
-    unsigned char *dataPacket = (unsigned char *) malloc(dataSize + 3);
+    unsigned char *dataPacket = (unsigned char *)malloc(dataSize + 3);
 
     dataPacket[0] = 1;
-    dataPacket[1] = dataSize / 256;  
+    dataPacket[1] = dataSize / 256;
     dataPacket[2] = dataSize % 256;
+
+    printf("\ndataSize: %d\ndata: 0x%x\npacketSize: %d\n", dataSize, data[0], *packetSize);
+
     memcpy(dataPacket + 3, data, dataSize);
 
-    printf("data packet: ");
-    for (int i = 0; i < *packetSize; i++) printf("0x%x ", dataPacket[i]);
-    printf("\n");
+    print("Pacote de Dados: ", 17, dataPacket, *packetSize);
 
     return dataPacket;
 }
-
-void buildDataForPackets(int dataSize,  unsigned char *data, unsigned char* fileContent){
-    data = (unsigned char *) malloc(dataSize);
-    memcpy(data, fileContent, dataSize);
-
-    printf("data for packet: ");
-    for (int i = 0; i < dataSize; i++) printf("0x%x ", data[i]);
-    printf("\n");
-
-}
-
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate, int nTries, int timeout, const char *filename) {
     // TODO
@@ -86,7 +82,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         connectionParameters.role = LlTx;
     else if (strcmp(role, "rx") == 0)  // role == "rx"
         connectionParameters.role = LlRx;
-    else {  
+    else {
         printf("Invalid role\n");
         exit(-1);
     }
@@ -95,13 +91,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
     connectionParameters.nRetransmissions = nTries;
     connectionParameters.timeout = timeout;
 
-    if(llopen(connectionParameters) != 0){
+    if (llopen(connectionParameters) != 0) {
         printf("Error opening connection\n");
         exit(-1);
     }
 
     if (connectionParameters.role == LlTx) {
-        
         FILE *file = fopen(filename, "rb");
         if (file == NULL) {
             printf("Error opening file\n");
@@ -113,8 +108,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         if (stat(filename, &st) == 0) {
             fileSize = st.st_size;
             printf("O tamanho do ficheiro é %ld bytes\n", fileSize);
-        }
-        else {
+        } else {
             perror("Erro ao obter o tamanho do ficheiro");
             exit(-1);
         }
@@ -122,24 +116,25 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         // Send first control packet
         int controlStartPacketSize;
         unsigned char *controlStartPacket = buildControlPackets(fileSize, filename, CONTROL_PACKET_START, &controlStartPacketSize);
-        if (llwrite(controlStartPacket, controlStartPacketSize) != 0) { 
+        if (llwrite(controlStartPacket, controlStartPacketSize) != 0) {
             perror("Error sending control packet");
             exit(-1);
         }
 
-        unsigned char * fileContent = (unsigned char *) malloc(fileSize * sizeof(unsigned char));
+        unsigned char *fileContent = (unsigned char *)malloc(fileSize * sizeof(unsigned char));
         fread(fileContent, sizeof(unsigned char), fileSize, file);
 
         int completePackets = fileSize / MAX_DATA_SIZE;
         int incompletePacketSize = fileSize - (MAX_DATA_SIZE * completePackets);
 
-        for(int i = 0; i < completePackets; i++){ 
+        for (int i = 0; i < completePackets; i++) {
+            unsigned char *data;
+            data = (unsigned char *)malloc(MAX_DATA_SIZE);
+            memcpy(data, fileContent, MAX_DATA_SIZE);
+            print("Dados do Pacote:", 17, data, MAX_DATA_SIZE);
 
-            unsigned char data;
-            buildDataForPackets(MAX_DATA_SIZE, &data, fileContent);
-    
             int dataPacketSize;
-            unsigned char *dataPacket = buildDataPackets(MAX_DATA_SIZE, &data, &dataPacketSize);
+            unsigned char *dataPacket = buildDataPackets(MAX_DATA_SIZE, data, &dataPacketSize);
 
             if (llwrite(dataPacket, dataPacketSize)) {
                 perror("Error sending data complete packet");
@@ -149,12 +144,15 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
             fileContent += MAX_DATA_SIZE;
         }
 
-        if(incompletePacketSize != 0){
-            unsigned char data;
-            buildDataForPackets(incompletePacketSize, &data, fileContent);
-    
+        if (incompletePacketSize != 0) {
+            unsigned char *data;
+            data = (unsigned char *)malloc(incompletePacketSize);
+            memcpy(data, fileContent, incompletePacketSize);
+
+            print("Dados do Pacote:", 17, data, incompletePacketSize);
+
             int dataPacketSize;
-            unsigned char *dataPacket = buildDataPackets(incompletePacketSize, &data, &dataPacketSize);
+            unsigned char *dataPacket = buildDataPackets(incompletePacketSize, data, &dataPacketSize);
 
             if (llwrite(dataPacket, dataPacketSize)) {
                 perror("Error sending data incomplete packet");
@@ -165,7 +163,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         // Send end control packet
         int controlEndPacketSize;
         unsigned char *controlEndPacket = buildControlPackets(fileSize, filename, CONTROL_PACKET_END, &controlEndPacketSize);
-        if (llwrite(controlEndPacket, controlEndPacketSize) != 0) { 
+        if (llwrite(controlEndPacket, controlEndPacketSize) != 0) {
             perror("Error sending control packet");
             exit(-1);
         }
@@ -173,17 +171,16 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         fclose(file);
         free(controlStartPacket);
         free(controlEndPacket);
-        //free(fileContent);  
-    } 
-    else if (connectionParameters.role == LlRx) {
-
+        // free(fileContent);
+    } else if (connectionParameters.role == LlRx) {
         unsigned char *packet = (unsigned char *)malloc(MAX_DATA_SIZE);
         FILE *newFile;
 
-        while (1){
-            if (llread(packet)){
-                if(packet[0] == 2){
-                    unsigned char fileSizeLength = packet[2];  
+        while (1) {
+            if (llread(packet) == 0) {
+                print("App: Recetor recebeu: ", 18, packet, sizeof(packet));
+                if (packet[0] == 2) {
+                    unsigned char fileSizeLength = packet[2];
                     int fileSize = 0;
                     for (unsigned char i = 3; i - 3 < fileSizeLength; i++) {
                         fileSize |= packet[i];
@@ -194,11 +191,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
                     memcpy(newFileName, packet + fileSizeLength + 5, fileNameLength);
                     newFile = fopen(newFileName, "wb");
                 }
-                if(packet[0] == 1){
+                if (packet[0] == 1) {
                     unsigned char dataSize = packet[1] * 256 + packet[2];
                     fwrite(packet + 3, sizeof(unsigned char), dataSize, newFile);
                 }
-                if(packet[0] == 3){
+                if (packet[0] == 3) {
                     fclose(newFile);
                     break;
                 }
@@ -208,16 +205,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         free(packet);
     }
 
+    // frees e close do 1 ficheiro
 
-
-
-    //frees e close do 1 ficheiro
-    
-    if(llclose(0) != 0){ // <-- o fabio meter isto dentro do tx
+    if (llclose(0) != 0) {  // <-- o fabio meter isto dentro do tx
         printf("Error closing connection\n");
         exit(-1);
     }
 }
-
-
-
