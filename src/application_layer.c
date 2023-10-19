@@ -12,12 +12,12 @@
 #define CONTROL_PACKET_START 0x02
 #define CONTROL_PACKET_END 0x03
 #define DATA_PACKET 0x01
-#define MAX_DATA_SIZE 1
+#define MAX_DATA_SIZE 512
 
 void print(char *title, int titleSize, unsigned char *content, int contentSize) {
     // debug only
     printf("\n");
-    for (int i = 0; i < titleSize; i++) printf("%c ", title[i]);
+    for (int i = 0; i < titleSize; i++) printf("%c", title[i]);
     for (int i = 0; i < contentSize; i++) printf("0x%x ", content[i]);
     printf("\n");
 }
@@ -178,7 +178,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
 
         while (1) {
             if (llread(packet) == 0) {
-                print("App: Recetor recebeu: ", 18, packet, sizeof(packet));
+                print("Recetor recebeu: ", 18, packet, sizeof(packet));
                 if (packet[0] == 2) {
                     unsigned char fileSizeLength = packet[2];
                     int fileSize = 0;
@@ -186,16 +186,17 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
                         fileSize |= packet[i];
                         fileSize <<= 8;
                     }
-                    unsigned char fileNameLength = packet[fileSizeLength + 4];
-                    char *newFileName = (char *)malloc(fileNameLength);
-                    memcpy(newFileName, packet + fileSizeLength + 5, fileNameLength);
-                    newFile = fopen(newFileName, "wb");
+                    
+                    // unsigned char fileNameLength = packet[fileSizeLength + 5];
+                    char *newFileName = (char *)malloc(strlen(filename));
+                    memcpy(newFileName, packet + fileSizeLength + 5, strlen(filename));
+                    newFile = fopen(filename, "wb");
                 }
-                if (packet[0] == 1) {
+                else if (packet[0] == 1) {
                     unsigned char dataSize = packet[1] * 256 + packet[2];
                     fwrite(packet + 3, sizeof(unsigned char), dataSize, newFile);
                 }
-                if (packet[0] == 3) {
+                else if (packet[0] == 3) {
                     fclose(newFile);
                     break;
                 }

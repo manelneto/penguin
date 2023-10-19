@@ -53,10 +53,10 @@ LinkLayerRole role;
 
 void printA(char *title, int titleSize, unsigned char *content, int contentSize) {
     // debug only
-    printf("\n");
-    for (int i = 0; i < titleSize; i++) printf("%c ", title[i]);
+    /*printf("\n");
+    for (int i = 0; i < titleSize; i++) printf("%c", title[i]);
     for (int i = 0; i < contentSize; i++) printf("0x%x ", content[i]);
-    printf("\n");
+    printf("\n");*/
 }
 
 void alarmHandler(int signal) {
