@@ -13,7 +13,7 @@
 #define CONTROL_PACKET_START 0x02
 #define CONTROL_PACKET_END 0x03
 #define DATA_PACKET 0x01
-#define MAX_DATA_SIZE 1000
+#define MAX_DATA_SIZE 5
 
 int logaritmo2(int n) {
     int res = 0;
@@ -52,13 +52,17 @@ unsigned char *buildControlPackets(long int fileSize, const char *fileName, unsi
 }
 
 unsigned char *buildDataPackets(int dataSize, unsigned char *data, int *packetSize) {
-
-    unsigned char *dataPacket = (unsigned char *) malloc(*packetSize);
+    *packetSize = dataSize + 3;  // 3 -> C + L2 + L1
+    unsigned char *dataPacket = (unsigned char *) malloc(dataSize + 3);
 
     dataPacket[0] = 1;
     dataPacket[1] = dataSize / 256;  
     dataPacket[2] = dataSize % 256;
     memcpy(dataPacket + 3, data, dataSize);
+
+    printf("data packet: ");
+    for (int i = 0; i < *packetSize; i++) printf("0x%x ", dataPacket[i]);
+    printf("\n");
 
     return dataPacket;
 }
@@ -66,6 +70,11 @@ unsigned char *buildDataPackets(int dataSize, unsigned char *data, int *packetSi
 void buildDataForPackets(int dataSize,  unsigned char *data, unsigned char* fileContent){
     data = (unsigned char *) malloc(dataSize);
     memcpy(data, fileContent, dataSize);
+
+    printf("data for packet: ");
+    for (int i = 0; i < dataSize; i++) printf("0x%x ", data[i]);
+    printf("\n");
+
 }
 
 
@@ -133,7 +142,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
             unsigned char *dataPacket = buildDataPackets(MAX_DATA_SIZE, &data, &dataPacketSize);
 
             if (llwrite(dataPacket, dataPacketSize)) {
-                perror("Error sending data packet");
+                perror("Error sending data complete packet");
                 exit(-1);
             }
 
@@ -148,7 +157,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
             unsigned char *dataPacket = buildDataPackets(incompletePacketSize, &data, &dataPacketSize);
 
             if (llwrite(dataPacket, dataPacketSize)) {
-                perror("Error sending data packet");
+                perror("Error sending data incomplete packet");
                 exit(-1);
             }
         }
@@ -161,18 +170,48 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
             exit(-1);
         }
 
+        fclose(file);
+        free(controlStartPacket);
+        free(controlEndPacket);
+        //free(fileContent);  
     } 
     else if (connectionParameters.role == LlRx) {
-        /*unsigned char *buf1 = (unsigned char *)malloc(5);
-        while (llread(buf1));*/
 
-        while(){
+        unsigned char *packet = (unsigned char *)malloc(MAX_DATA_SIZE);
+        FILE *newFile;
 
+        while (1){
+            if (llread(packet)){
+                if(packet[0] == 2){
+                    unsigned char fileSizeLength = packet[2];  
+                    int fileSize = 0;
+                    for (unsigned char i = 3; i - 3 < fileSizeLength; i++) {
+                        fileSize |= packet[i];
+                        fileSize <<= 8;
+                    }
+                    unsigned char fileNameLength = packet[fileSizeLength + 4];
+                    char *newFileName = (char *)malloc(fileNameLength);
+                    memcpy(newFileName, packet + fileSizeLength + 5, fileNameLength);
+                    newFile = fopen(newFileName, "wb");
+                }
+                if(packet[0] == 1){
+                    unsigned char dataSize = packet[1] * 256 + packet[2];
+                    fwrite(packet + 3, sizeof(unsigned char), dataSize, newFile);
+                }
+                if(packet[0] == 3){
+                    fclose(newFile);
+                    break;
+                }
+            }
         }
 
-
-       
+        free(packet);
     }
+
+
+
+
+    //frees e close do 1 ficheiro
     
     if(llclose(0) != 0){ // <-- o fabio meter isto dentro do tx
         printf("Error closing connection\n");

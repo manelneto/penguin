@@ -417,7 +417,7 @@ int llread(unsigned char *packet) {
                             write(fd, bufferRr, sizeof(bufferRr));
                             state = STOP_STATE;
                         } else {  // error
-                            printf("ERROR\n");
+                            printf("ERROR BCC2\n");
                             unsigned char rej = c_check == N_0 ? C_REJ(0) : C_REJ(1);
                             unsigned char bufferRej[5] = {FLAG, A, rej, A ^ rej, FLAG};
                             write(fd, bufferRej, sizeof(bufferRej));
