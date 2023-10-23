@@ -78,6 +78,22 @@ unsigned char *buildDataPacket(int dataSize, unsigned char *data, int *packetSiz
     return dataPacket;
 }
 
+void sendDataPacket(int size, unsigned char *fileContent) {
+    unsigned char *data;
+    data = (unsigned char *)malloc(size);
+    memcpy(data, fileContent, size);
+
+    int dataPacketSize;
+    unsigned char *dataPacket = buildDataPacket(size, data, &dataPacketSize);
+
+    if (llwrite(dataPacket, dataPacketSize) < 0) {
+        perror("Error sending complete data packet\n");
+        exit(-1);
+    }
+
+    free(data);
+}
+
 void applicationLayer(const char *serialPort, const char *role, int baudRate, int nTries, int timeout, const char *filename) {
     LinkLayer connectionParameters;
     strcpy(connectionParameters.serialPort, serialPort);
@@ -132,36 +148,13 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
 
         // Enviar pacotes de dados 'completos'
         for (int i = 0; i < completePackets; i++) {
-            unsigned char *data;
-            data = (unsigned char *)malloc(MAX_DATA_SIZE);
-            memcpy(data, fileContent, MAX_DATA_SIZE);
-
-            int dataPacketSize;
-            unsigned char *dataPacket = buildDataPacket(MAX_DATA_SIZE, data, &dataPacketSize);
-
-            if (llwrite(dataPacket, dataPacketSize) < 0) {
-                perror("Error sending complete data packet\n");
-                exit(-1);
-            }
-
+            sendDataPacket(MAX_DATA_SIZE, fileContent);
             fileContent += MAX_DATA_SIZE;
-            free(data);
         }
 
         // Enviar pacote de dados 'incompleto'
         if (incompletePacketSize != 0) {
-            // TODO: este código é igual ao anterior - função sendPacket(...) ?
-            unsigned char *data;
-            data = (unsigned char *)malloc(incompletePacketSize);
-            memcpy(data, fileContent, incompletePacketSize);
-
-            int dataPacketSize;
-            unsigned char *dataPacket = buildDataPacket(incompletePacketSize, data, &dataPacketSize);
-
-            if (llwrite(dataPacket, dataPacketSize) < 0) {
-                perror("Error sending incomplete data packet\n");
-                exit(-1);
-            }
+            sendDataPacket(incompletePacketSize, fileContent);
         }
 
         // Enviar pacote de controlo 'end'
