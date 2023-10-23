@@ -54,8 +54,8 @@ unsigned char *buildControlPacket(unsigned char controlField, long int fileSize,
         controlPacket[index] = leftmost;
     }
 
-    controlPacket[++index] = CONTROL_PACKET_FILE_NAME;
-    controlPacket[++index] = fileNameLength;
+    controlPacket[index++] = CONTROL_PACKET_FILE_NAME;
+    controlPacket[index] = fileNameLength;
     memcpy(controlPacket + index, fileName, fileNameLength);
 
     printAL("Pacote de Controlo Construído: ", controlPacket, *packetSize);  // DEBUG
@@ -185,11 +185,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
                         fileSize |= packet[i];
                         fileSize <<= 8;
                     }
-
+                    fileSize >>= 8;
                     unsigned char fileNameLength = packet[fileSizeLength + 5];
                     newFileName = (char *)malloc(fileNameLength);
-                    memcpy(newFileName, packet + fileSizeLength + 5, fileNameLength);
-                    printf("Started receiving file: %s\n", newFileName);
+                    memcpy(newFileName, packet + fileSizeLength + 4, fileNameLength);
+                    printf("Started receiving file: %s (%d bytes)\n", newFileName, fileSize);
                 } else if (packet[0] == DATA_PACKET) {
                     int dataSize = packet[1] * 256 + packet[2];
                     fwrite(packet + 3, sizeof(unsigned char), dataSize, newFile);
