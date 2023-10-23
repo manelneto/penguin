@@ -18,9 +18,9 @@
 
 #define MAX_DATA_SIZE 512
 
-void print(char *title, unsigned char *content, int contentSize) {
+void printAL(char *title, unsigned char *content, int contentSize) {
     // DEBUG
-    printf("\n");
+    printf("\nApplication Layer\n");
     for (int i = 0; title[i] != '\0'; i++) printf("%c", title[i]);
     for (int i = 0; i < contentSize; i++) printf("0x%x ", content[i]);
     printf("\n");
@@ -58,7 +58,7 @@ unsigned char *buildControlPacket(unsigned char controlField, long int fileSize,
     controlPacket[++index] = fileNameLength;
     memcpy(controlPacket + index, fileName, fileNameLength);
 
-    print("Pacote de Controlo Construído: ", controlPacket, *packetSize);  // DEBUG
+    printAL("Pacote de Controlo Construído: ", controlPacket, *packetSize);  // DEBUG
 
     return controlPacket;
 }
@@ -73,7 +73,7 @@ unsigned char *buildDataPacket(int dataSize, unsigned char *data, int *packetSiz
 
     memcpy(dataPacket + 3, data, dataSize);
 
-    print("Pacote de Dados Construído: ", dataPacket, *packetSize);  // DEBUG
+    printAL("Pacote de Dados Construído: ", dataPacket, *packetSize);  // DEBUG
 
     return dataPacket;
 }
@@ -87,7 +87,7 @@ void sendDataPacket(int size, unsigned char *fileContent) {
     unsigned char *dataPacket = buildDataPacket(size, data, &dataPacketSize);
 
     if (llwrite(dataPacket, dataPacketSize) < 0) {
-        perror("Error sending complete data packet\n");
+        printf("Error sending complete data packet\n");
         exit(-1);
     }
 
@@ -102,7 +102,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
     else if (strcmp(role, "rx") == 0)  // role == "rx"
         connectionParameters.role = LlRx;
     else {
-        perror("Invalid role\n");
+        printf("Invalid role: %s\n", role);
         exit(-1);
     }
 
@@ -111,14 +111,14 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
     connectionParameters.timeout = timeout;
 
     if (llopen(connectionParameters) < 0) {
-        perror("Error opening connection\n");
+        printf("Error opening connection\n");
         exit(-1);
     }
 
     if (connectionParameters.role == LlTx) {
         FILE *file = fopen(filename, "rb");
         if (file == NULL) {
-            perror("Error opening file to read\n");
+            printf("Error opening file to read\n");
             exit(-1);
         }
 
@@ -128,7 +128,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
             fileSize = st.st_size;
             printf("O tamanho do ficheiro é %ld bytes\n", fileSize);  // DEBUG
         } else {
-            perror("Error getting file size\n");
+            printf("Error getting file size\n");
             exit(-1);
         }
 
@@ -136,7 +136,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         int startControlPacketSize;
         unsigned char *startControlPacket = buildControlPacket(CONTROL_PACKET_START, fileSize, filename, &startControlPacketSize);
         if (llwrite(startControlPacket, startControlPacketSize) < 0) {
-            perror("Error sending start control packet\n");
+            printf("Error sending start control packet\n");
             exit(-1);
         }
 
@@ -161,7 +161,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         int endControlPacketSize;
         unsigned char *endControlPacket = buildControlPacket(CONTROL_PACKET_END, fileSize, filename, &endControlPacketSize);
         if (llwrite(endControlPacket, endControlPacketSize) < 0) {
-            perror("Error sending end control packet\n");
+            printf("Error sending end control packet\n");
             exit(-1);
         }
 
@@ -170,7 +170,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
     } else if (connectionParameters.role == LlRx) {
         FILE *newFile = fopen(filename, "wb");
         if (newFile == NULL) {
-            perror("Error opening file to write\n");
+            printf("Error opening file to write\n");
             exit(-1);
         }
 
@@ -178,7 +178,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         unsigned char *packet = (unsigned char *)malloc(MAX_DATA_SIZE);
         while (TRUE) {
             if (llread(packet) > 0) {
-                print("Recetor recebeu: ", packet, sizeof(packet));
+                printAL("Recetor recebeu: ", packet, sizeof(packet));
                 if (packet[0] == CONTROL_PACKET_START) {
                     unsigned char fileSizeLength = packet[2];
                     int fileSize = 0;
@@ -206,7 +206,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
     }
 
     if (llclose(FALSE) < 0) {
-        perror("Error closing connection\n");
+        printf("Error closing connection\n");
         exit(-1);
     }
 }

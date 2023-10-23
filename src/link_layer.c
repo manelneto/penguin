@@ -21,14 +21,12 @@
 #define A 0x03
 #define A_CLOSE 0x01
 #define C_SET 0x03
-#define C_DISC 0x0B
 #define C_UA 0x07
 #define C_RR(r) ((r << 7) | 0x05)
 #define C_REJ(r) ((r << 7) | 0x01)
+#define C_DISC 0x0B
 
-#define N_0 0x00
-#define N_1 0x40
-#define N(s) s << 7
+#define N(s) (s << 6)
 
 #define ESC 0x7D
 #define FLAG_ESCAPED 0x5E
@@ -51,68 +49,60 @@ int nRetransmissions;
 int timeout;
 LinkLayerRole role;
 
-void printA(char *title, int titleSize, unsigned char *content, int contentSize) {
-    // debug only
-    /*printf("\n");
-    for (int i = 0; i < titleSize; i++) printf("%c", title[i]);
+void printLL(char *title, unsigned char *content, int contentSize) {
+    // DEBUG
+    printf("\nLink Layer\n");
+    for (int i = 0; title[i] != '\0'; i++) printf("%c", title[i]);
     for (int i = 0; i < contentSize; i++) printf("0x%x ", content[i]);
-    printf("\n");*/
+    printf("\n");
 }
 
 void alarmHandler(int signal) {
     alarmEnabled = FALSE;
     alarmCount++;
-    printf("ALARM\n");
+    printf("\nALARM!\n");
 }
 
-void processByte(int fd, unsigned char actual_c, unsigned char *a_check, unsigned char *c_check, State *state) {
-    unsigned char byte_read;
+void processByte(unsigned char a, unsigned char c, unsigned char *aCheck, unsigned char *cCheck, State *state) {
+    unsigned char byteRead;
 
-    if (read(fd, &byte_read, sizeof(byte_read)) == sizeof(byte_read)) {
-        /*if (role == LlTx)
-            printf("Tx read: 0x%0x\n", byte_read);
-        else if (role == LlRx)
-            printf("Rx read: 0x%0x\n", byte_read);*/
+    if (read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
+        printLL("Byte: ", &byteRead, sizeof(byteRead));
         switch (*state) {
             case START_STATE:
-                // printf("START_STATE\n");
-                if (byte_read == FLAG)
+                if (byteRead == FLAG)
                     *state = FLAG_RCV_STATE;
                 else
                     *state = START_STATE;
                 break;
             case FLAG_RCV_STATE:
-                // printf("FLAG_RCV_STATE\n");
-                if (byte_read == FLAG)
+                if (byteRead == FLAG)
                     *state = FLAG_RCV_STATE;
-                else if (byte_read == A || byte_read == A_CLOSE) {
-                    *a_check = byte_read;
+                else if (byteRead == a) {
+                    *aCheck = byteRead;
                     *state = A_RCV_STATE;
                 } else
                     *state = START_STATE;
                 break;
             case A_RCV_STATE:
-                // printf("A_RCV_STATE\n");
-                if (byte_read == FLAG)
+                if (byteRead == FLAG)
                     *state = FLAG_RCV_STATE;
-                else if (byte_read == actual_c) {
-                    *c_check = byte_read;
+                else if (byteRead == c) {
+                    *cCheck = byteRead;
                     *state = C_RCV_STATE;
                 } else
                     *state = START_STATE;
                 break;
             case C_RCV_STATE:
-                // printf("C_RCV_STATE\n");
-                if (byte_read == FLAG)
+                if (byteRead == FLAG)
                     *state = FLAG_RCV_STATE;
-                else if (byte_read == (*a_check ^ *c_check))
+                else if (byteRead == (*aCheck ^ *cCheck))
                     *state = BCC_OK_STATE;
                 else
                     *state = START_STATE;
                 break;
             case BCC_OK_STATE:
-                // printf("BCC_OK_STATE\n");
-                if (byte_read == FLAG)
+                if (byteRead == FLAG)
                     *state = STOP_STATE;
                 else
                     *state = START_STATE;
@@ -127,20 +117,18 @@ void processByte(int fd, unsigned char actual_c, unsigned char *a_check, unsigne
 // LLOPEN
 ////////////////////////////////////////////////
 int llopen(LinkLayer connectionParameters) {
-    // TODO
-
     fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
     if (fd < 0) {
-        perror(connectionParameters.serialPort);
-        exit(-1);
+        printf("Error opening serial port: %s\n", connectionParameters.serialPort);
+        return -1;
     }
 
     struct termios oldtio;
     struct termios newtio;
 
     if (tcgetattr(fd, &oldtio) == -1) {
-        perror("tcgetattr");
-        exit(-1);
+        printf("tcgetattr error\n");
+        return -1;
     }
 
     memset(&newtio, 0, sizeof(newtio));
@@ -154,47 +142,55 @@ int llopen(LinkLayer connectionParameters) {
 
     tcflush(fd, TCIOFLUSH);
 
-    if (tcsetattr(fd, TCSANOW, &newtio) == 1) {
-        perror("tcsetattr");
-        exit(-1);
+    if (tcsetattr(fd, TCSANOW, &newtio) == -1) {
+        printf("tcsetattr error\n");
+        return -1;
     }
 
     nRetransmissions = connectionParameters.nRetransmissions;
-    int tries = nRetransmissions;
-
     timeout = connectionParameters.timeout;
     role = connectionParameters.role;
 
     State state = START_STATE;
-    unsigned char a_check;
-    unsigned char c_check;
+    unsigned char aCheck;
+    unsigned char cCheck;
 
     if (connectionParameters.role == LlTx) {
         (void)signal(SIGALRM, alarmHandler);
-        unsigned char buffer[5] = {FLAG, A, C_SET, A ^ C_SET, FLAG};
+        int tries = nRetransmissions;
+        unsigned char set[5] = {FLAG, A, C_SET, A ^ C_SET, FLAG};
+
         do {
-            write(fd, buffer, sizeof(buffer));
+            printLL("LLOPEN - Tx enviou: ", set, sizeof(set));
+            write(fd, set, sizeof(set));
             alarm(timeout);
             alarmEnabled = TRUE;
-            while (alarmEnabled == TRUE && state != STOP_STATE)
-                processByte(fd, C_UA, &a_check, &c_check, &state);
+            while (alarmEnabled == TRUE && state != STOP_STATE) {
+                processByte(A, C_UA, &aCheck, &cCheck, &state);
+            }
             if (state == STOP_STATE) {
                 alarm(0);
                 alarmEnabled = FALSE;
+            } else {
+                // timeout
+                tries--;
             }
-            printf("\nLLOPEN tries: %d\n", tries);
-            tries--;
-            alarmEnabled = TRUE;
-        } while (tries > 0 && state != STOP_STATE);
+            // alarmEnabled = TRUE; ?
+        } while (tries >= 0 && state != STOP_STATE);
+
+        if (state != STOP_STATE) {
+            printf("LLOPEN: Tx did not receive answer from Rx\n");
+            return -1;
+        }
     } else if (connectionParameters.role == LlRx) {
         while (state != STOP_STATE) {
-            processByte(fd, C_SET, &a_check, &c_check, &state);
+            processByte(A, C_SET, &aCheck, &cCheck, &state);
         }
-        unsigned char buffer[5] = {FLAG, A, C_UA, A ^ C_UA, FLAG};
-        write(fd, buffer, sizeof(buffer));
+        unsigned char ua[5] = {FLAG, A, C_UA, A ^ C_UA, FLAG};
+        write(fd, ua, sizeof(ua));
     } else {
-        perror("connectionParameters.role");
-        exit(-1);
+        printf("connectionParameters.role error\n");
+        return -1;
     }
 
     return 1;
@@ -209,8 +205,8 @@ int llwrite(const unsigned char *buf, int bufSize) {
         bcc2 ^= buf[i];
     }
 
-    unsigned char *dataBcc2 = malloc(2 * bufSize + 2);
-    unsigned index = 0;
+    unsigned char *dataBcc2 = (unsigned char *)malloc(2 * bufSize + 2);
+    int index = 0;
     for (int i = 0; i < bufSize; i++) {
         if (buf[i] == FLAG) {
             dataBcc2[index++] = ESC;
@@ -234,13 +230,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
     }
 
     static unsigned char tramaI = 0;
-    unsigned char n;
-    if (tramaI == 0) {
-        n = N_0;
-    } else if (tramaI == 1) {
-        n = N_1;
-    }
-
+    unsigned char n = N(tramaI);
     unsigned char bcc1 = A ^ n;
 
     unsigned char *frame = malloc(index + 5);  // F A C BCC1 F;
@@ -248,70 +238,70 @@ int llwrite(const unsigned char *buf, int bufSize) {
     frame[1] = A;
     frame[2] = n;
     frame[3] = bcc1;
-    for (int i = 4; i < index + 4; i++) {
+    for (int i = 4; i < (index + 4); i++) {
         frame[i] = dataBcc2[i - 4];
     }
     frame[index + 4] = FLAG;
 
-    int tries = nRetransmissions;
-    int rejectedCheck = FALSE;
-    int accepetedCheck = FALSE;
+    int size = index + 5;  // F A C BCC1 F
+
     State state = START_STATE;
-    unsigned char byte_read;
-    unsigned char a_check;
-    unsigned char c_check;
+    unsigned char byteRead;
+    unsigned char aCheck;
+    unsigned char cCheck;
+    unsigned char accepetedCheck;
+    unsigned char rejectedCheck;
+
+    int tries = nRetransmissions;
+
     do {
-        write(fd, frame, index + 5);
-        printA("Transmissor enviou: ", 21, frame, index + 5);
+        printLL("LL WRITE - Tx enviou: ", frame, size);
+        write(fd, frame, size);
         alarm(timeout);
         alarmEnabled = TRUE;
-        rejectedCheck = FALSE;
         accepetedCheck = FALSE;
+        rejectedCheck = FALSE;
         while (alarmEnabled == TRUE && rejectedCheck == FALSE && accepetedCheck == FALSE) {
-            // state machine
             state = START_STATE;
             while (state != STOP_STATE && alarmEnabled == TRUE) {
-                if (read(fd, &byte_read, sizeof(byte_read)) == sizeof(byte_read)) {
+                if (read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
+                    // Máquina de Estados
                     switch (state) {
                         case START_STATE:
-                            // printf("Tx is in START_STATE\n");
-                            if (byte_read == FLAG)
+                            if (byteRead == FLAG)
                                 state = FLAG_RCV_STATE;
                             else
                                 state = START_STATE;
                             break;
                         case FLAG_RCV_STATE:
-                            // printf("Tx is in FLAG_RCV_STATE\n");
-                            if (byte_read == FLAG)
+                            if (byteRead == FLAG)
                                 state = FLAG_RCV_STATE;
-                            else if (byte_read == A) {
-                                a_check = byte_read;
+                            else if (byteRead == A) {
+                                aCheck = byteRead;
                                 state = A_RCV_STATE;
                             } else
                                 state = START_STATE;
                             break;
                         case A_RCV_STATE:
-                            // printf("Tx is in A_RCV_STATE\n");
-                            if (byte_read == FLAG)
+                            if (byteRead == FLAG)
                                 state = FLAG_RCV_STATE;
-                            else if (byte_read == C_RR(0) || byte_read == C_RR(1) || byte_read == C_REJ(0) || byte_read == C_REJ(1)) {
-                                c_check = byte_read;
+                            else if (byteRead == C_RR(0) || byteRead == C_RR(1) || byteRead == C_REJ(0) || byteRead == C_REJ(1)) {
+                                cCheck = byteRead;
                                 state = C_RCV_STATE;
                             } else
                                 state = START_STATE;
                             break;
                         case C_RCV_STATE:
-                            // printf("Tx is in C_RCV_STATE\n");
-                            if (byte_read == FLAG)
+                            if (byteRead == FLAG)
                                 state = FLAG_RCV_STATE;
-                            else if (byte_read == (a_check ^ c_check))
+                            // TODO: array de 4 Cs
+                            else if (byteRead == (aCheck ^ cCheck))
                                 state = BCC_OK_STATE;
                             else
                                 state = START_STATE;
                             break;
                         case BCC_OK_STATE:
-                            // printf("Tx is in BCC_OK_STATE\n");
-                            if (byte_read == FLAG)
+                            if (byteRead == FLAG)
                                 state = STOP_STATE;
                             else
                                 state = START_STATE;
@@ -321,110 +311,124 @@ int llwrite(const unsigned char *buf, int bufSize) {
                     }
                 }
             }
-            // interpretação da resposta
-            if (c_check == C_RR(0) || c_check == C_RR(1)) {
+
+            if (state == STOP_STATE) {
+                alarm(0);
+                alarmEnabled = FALSE;
+            } else {
+                // timeout
+                tries--;
+                continue;
+            }
+
+            // Interpretação da Resposta
+            if (cCheck == C_RR(0) || cCheck == C_RR(1)) {
                 accepetedCheck = TRUE;
                 tramaI = (tramaI + 1) % 2;
-            }
-            if (c_check == C_REJ(0) || c_check == C_REJ(1)) {
+            } else if (cCheck == C_REJ(0) || cCheck == C_REJ(1)) {
                 rejectedCheck = TRUE;
             }
         }
-        printf("\nLLWRITE tries: %d\n", tries);
-        tries--;
-        alarmEnabled = TRUE;
-    } while (tries > 0 && accepetedCheck == FALSE);
+        // alarmEnabled = TRUE; ?
+    } while (tries >= 0 && accepetedCheck == FALSE);
+
+    if (state != STOP_STATE) {
+        printf("LLWRITE: Tx did not receive answer from Rx\n");
+        return -1;
+    }
 
     free(dataBcc2);
     free(frame);
-    return 1;
+    return size;
 }
 
 ////////////////////////////////////////////////
 // LLREAD
 ////////////////////////////////////////////////
 int llread(unsigned char *packet) {
+    static unsigned char tramaI = 0;
+
     State state = START_STATE;
-    unsigned char byte_read;
-    unsigned char a_check;
-    unsigned char c_check;
-    int escFound = FALSE;
+    unsigned char byteRead;
+    unsigned char aCheck;
+    unsigned char cCheck;
+    unsigned char escFound = FALSE;
+
     int index = 0;
+    int size;
 
     while (state != STOP_STATE) {
-        if (read(fd, &byte_read, sizeof(byte_read)) == sizeof(byte_read)) {
+        if (read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
             switch (state) {
                 case START_STATE:
-                    // printf("Rx is in START_STATE\n");
-                    if (byte_read == FLAG)
+                    if (byteRead == FLAG)
                         state = FLAG_RCV_STATE;
                     else
                         state = START_STATE;
                     break;
                 case FLAG_RCV_STATE:
-                    // printf("Rx is in FLAG_RCV_STATE\n");
-                    if (byte_read == FLAG)
+                    if (byteRead == FLAG)
                         state = FLAG_RCV_STATE;
-                    else if (byte_read == A) {
-                        a_check = byte_read;
+                    else if (byteRead == A) {
+                        aCheck = byteRead;
                         state = A_RCV_STATE;
                     } else
                         state = START_STATE;
                     break;
                 case A_RCV_STATE:
-                    // printf("Rx is in A_RCV_STATE\n");
-                    if (byte_read == FLAG)
+                    if (byteRead == FLAG)
                         state = FLAG_RCV_STATE;
-                    else if (byte_read == N_0 || byte_read == N_1) {
-                        c_check = byte_read;
+                    else if (byteRead == N(0) || byteRead == N(1)) {
+                        cCheck = byteRead;
                         state = C_RCV_STATE;
                     } else
                         state = START_STATE;
                     break;
                 case C_RCV_STATE:
-                    // printf("Rx is in C_RCV_STATE\n");
-                    if (byte_read == FLAG)
+                    if (byteRead == FLAG)
                         state = FLAG_RCV_STATE;
-                    else if (byte_read == (a_check ^ c_check))
+                    else if (byteRead == (aCheck ^ cCheck))
                         state = DATA_STATE;
                     else
                         state = START_STATE;
                     break;
                 case DATA_STATE:
-                    // printf("Rx is in DATA_STATE\n");
                     if (escFound) {
-                        escFound = FALSE;
-
-                        if (byte_read == FLAG_ESCAPED)
+                        if (byteRead == FLAG_ESCAPED)
                             packet[index++] = FLAG;
-                        else if (byte_read == ESC_ESCAPED)
+                        else if (byteRead == ESC_ESCAPED)
                             packet[index++] = ESC;
-                    } else if (byte_read == ESC) {
+
+                        escFound = FALSE;
+                    } else if (byteRead == ESC) {
                         escFound = TRUE;
-                    } else if (byte_read == FLAG) {
+                    } else if (byteRead == FLAG) {
+                        size = index + 5;  // F A C BCC1 F
                         unsigned char bcc2 = packet[index - 1];
                         index--;
                         packet[index] = '\0';
-                        printA("Link: Recetor recebeu: ", 18, packet, index);
+                        printLL("Recetor recebeu: ", packet, index);
                         unsigned char bcc2Acc = packet[0];
-                        for (unsigned int i = 1; i < index; i++) {
+                        for (int i = 1; i < index; i++) {
                             bcc2Acc ^= packet[i];
                         }
-                        if (bcc2 == bcc2Acc) {  // success
-                            unsigned char rr = c_check == N_0 ? C_RR(1) : C_RR(0);
-                            unsigned char bufferRr[5] = {FLAG, A, rr, A ^ rr, FLAG};
-                            write(fd, bufferRr, sizeof(bufferRr));
+                        if (bcc2 == bcc2Acc && cCheck == N(tramaI)) {
+                            // success
+                            tramaI = (tramaI + 1) % 2;
+                            unsigned char n = C_RR(tramaI);
+                            unsigned char rr[5] = {FLAG, A, n, A ^ n, FLAG};
+                            write(fd, rr, sizeof(rr));
                             state = STOP_STATE;
-                        } else {  // error
-                            printf("\n--BCC2--\n");
-                            unsigned char rej = c_check == N_0 ? C_REJ(0) : C_REJ(1);
-                            unsigned char bufferRej[5] = {FLAG, A, rej, A ^ rej, FLAG};
-                            write(fd, bufferRej, sizeof(bufferRej));
+                        } else {
+                            // error
+                            unsigned char n = C_REJ(tramaI);
+                            unsigned char rej[5] = {FLAG, A, n, A ^ n, FLAG};
+                            write(fd, rej, sizeof(rej));
                             state = STOP_STATE;
                             return -1;
                         }
                     } else {
-                        packet[index++] = byte_read;
+                        packet[index++] = byteRead;
                     }
                     break;
                 default:
@@ -432,47 +436,58 @@ int llread(unsigned char *packet) {
             }
         }
     }
-    return 1;
+    return size;
 }
 
 ////////////////////////////////////////////////
 // LLCLOSE
 ////////////////////////////////////////////////
 int llclose(int showStatistics) {
+    // TODO - showStatistics
     State state = START_STATE;
-    unsigned char a_check;
-    unsigned char c_check;
+    unsigned char aCheck;
+    unsigned char cCheck;
 
     int tries = nRetransmissions;
 
     if (role == LlTx) {
-        unsigned char bufferDisc[5] = {FLAG, A, C_DISC, A ^ C_DISC, FLAG};
+        unsigned char disc[5] = {FLAG, A, C_DISC, A ^ C_DISC, FLAG};
         do {
-            write(fd, bufferDisc, sizeof(bufferDisc));
+            printLL("LLCLOSE - Tx enviou: ", disc, sizeof(disc));
+            write(fd, disc, sizeof(disc));
             alarm(timeout);
             alarmEnabled = TRUE;
-            while (alarmEnabled == TRUE && state != STOP_STATE)
-                processByte(fd, C_DISC, &a_check, &c_check, &state);
+            while (alarmEnabled == TRUE && state != STOP_STATE) {
+                processByte(A_CLOSE, C_DISC, &aCheck, &cCheck, &state);
+            }
             if (state == STOP_STATE) {
                 alarm(0);
                 alarmEnabled = FALSE;
+            } else {
+                // timeout
+                tries--;
             }
-            printf("\nLLCLOSE tries: %d\n", tries);
-            tries--;
-            alarmEnabled = TRUE;
-        } while (tries > 0 && state != STOP_STATE);
-        unsigned char bufferUa[5] = {FLAG, A_CLOSE, C_UA, A_CLOSE ^ C_UA, FLAG};
-        write(fd, bufferUa, sizeof(bufferUa));
+            // alarmEnabled = TRUE; ?
+        } while (tries >= 0 && state != STOP_STATE);
+
+        if (state != STOP_STATE) {
+            printf("LLCLOSE: Tx did not receive answer from Rx\n");
+            return -1;
+        }
+
+        unsigned char ua[5] = {FLAG, A_CLOSE, C_UA, A_CLOSE ^ C_UA, FLAG};
+        printLL("LLCLOSE - Tx enviou: ", ua, sizeof(ua));
+        write(fd, ua, sizeof(ua));
     } else if (role == LlRx) {
         while (state != STOP_STATE) {
-            processByte(fd, C_DISC, &a_check, &c_check, &state);
+            processByte(A, C_DISC, &aCheck, &cCheck, &state);
         }
-        unsigned char buffer[5] = {FLAG, A_CLOSE, C_DISC, A_CLOSE ^ C_DISC, FLAG};
-        write(fd, buffer, sizeof(buffer));
-
+        unsigned char disc[5] = {FLAG, A_CLOSE, C_DISC, A_CLOSE ^ C_DISC, FLAG};
+        printLL("LLCLOSE - Rx enviou: ", disc, sizeof(disc));
+        write(fd, disc, sizeof(disc));
     } else {
-        perror("connectionParameters.role");
-        exit(-1);
+        printf("connectionParameters.role error\n");
+        return -1;
     }
 
     close(fd);
