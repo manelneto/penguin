@@ -175,7 +175,6 @@ int llopen(LinkLayer connectionParameters) {
                 // timeout
                 tries--;
             }
-            // alarmEnabled = TRUE; ?
         } while (tries >= 0 && state != STOP_STATE);
 
         if (state != STOP_STATE) {
@@ -285,7 +284,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
                         case A_RCV_STATE:
                             if (byteRead == FLAG)
                                 state = FLAG_RCV_STATE;
-                            else if (byteRead == C_RR(0) || byteRead == C_RR(1) || byteRead == C_REJ(0) || byteRead == C_REJ(1)) {
+                            else if (byteRead == C_RR((tramaI + 1) % 2) || byteRead == C_REJ(tramaI)) {
                                 cCheck = byteRead;
                                 state = C_RCV_STATE;
                             } else
@@ -294,7 +293,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
                         case C_RCV_STATE:
                             if (byteRead == FLAG)
                                 state = FLAG_RCV_STATE;
-                            // TODO: array de 4 Cs
                             else if (byteRead == (aCheck ^ cCheck))
                                 state = BCC_OK_STATE;
                             else
@@ -329,7 +327,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
                 rejectedCheck = TRUE;
             }
         }
-        // alarmEnabled = TRUE; ?
     } while (tries >= 0 && accepetedCheck == FALSE);
 
     if (state != STOP_STATE) {
@@ -467,7 +464,6 @@ int llclose(int showStatistics) {
                 // timeout
                 tries--;
             }
-            // alarmEnabled = TRUE; ?
         } while (tries >= 0 && state != STOP_STATE);
 
         if (state != STOP_STATE) {
