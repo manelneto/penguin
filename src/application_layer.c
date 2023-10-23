@@ -166,7 +166,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate, in
         }
 
         fclose(file);
-        // free(fileContent); // <-- TODO: isto falha por alguma razão
     } else if (connectionParameters.role == LlRx) {
         FILE *newFile = fopen(filename, "wb");
         if (newFile == NULL) {

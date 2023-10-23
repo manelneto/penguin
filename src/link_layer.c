@@ -38,7 +38,6 @@ typedef enum {
     A_RCV_STATE,
     C_RCV_STATE,
     BCC_OK_STATE,
-    DATA_STATE,
     STOP_STATE
 } State;
 
@@ -63,7 +62,7 @@ void alarmHandler(int signal) {
     printf("\nALARM!\n");
 }
 
-void processByte(unsigned char a, unsigned char c, unsigned char *aCheck, unsigned char *cCheck, State *state) {
+void processByte(unsigned char a, unsigned char c1, unsigned char c2, unsigned char *aCheck, unsigned char *cCheck, State *state) {
     unsigned char byteRead;
 
     if (read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
@@ -87,7 +86,7 @@ void processByte(unsigned char a, unsigned char c, unsigned char *aCheck, unsign
             case A_RCV_STATE:
                 if (byteRead == FLAG)
                     *state = FLAG_RCV_STATE;
-                else if (byteRead == c) {
+                else if (byteRead == c1 || byteRead == c2) {
                     *cCheck = byteRead;
                     *state = C_RCV_STATE;
                 } else
@@ -166,7 +165,7 @@ int llopen(LinkLayer connectionParameters) {
             alarm(timeout);
             alarmEnabled = TRUE;
             while (alarmEnabled == TRUE && state != STOP_STATE) {
-                processByte(A, C_UA, &aCheck, &cCheck, &state);
+                processByte(A, C_UA, C_UA, &aCheck, &cCheck, &state);
             }
             if (state == STOP_STATE) {
                 alarm(0);
@@ -183,7 +182,7 @@ int llopen(LinkLayer connectionParameters) {
         }
     } else if (connectionParameters.role == LlRx) {
         while (state != STOP_STATE) {
-            processByte(A, C_SET, &aCheck, &cCheck, &state);
+            processByte(A, C_SET, C_SET, &aCheck, &cCheck, &state);
         }
         unsigned char ua[5] = {FLAG, A, C_UA, A ^ C_UA, FLAG};
         write(fd, ua, sizeof(ua));
@@ -232,6 +231,8 @@ int llwrite(const unsigned char *buf, int bufSize) {
     unsigned char n = N(tramaI);
     unsigned char bcc1 = A ^ n;
 
+    unsigned char next = (tramaI + 1) % 2;
+
     unsigned char *frame = malloc(index + 5);  // F A C BCC1 F;
     frame[0] = FLAG;
     frame[1] = A;
@@ -245,7 +246,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
     int size = index + 5;  // F A C BCC1 F
 
     State state = START_STATE;
-    unsigned char byteRead;
     unsigned char aCheck;
     unsigned char cCheck;
     unsigned char accepetedCheck;
@@ -263,51 +263,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
         while (alarmEnabled == TRUE && rejectedCheck == FALSE && accepetedCheck == FALSE) {
             state = START_STATE;
             while (state != STOP_STATE && alarmEnabled == TRUE) {
-                if (read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
-                    // Máquina de Estados
-                    switch (state) {
-                        case START_STATE:
-                            if (byteRead == FLAG)
-                                state = FLAG_RCV_STATE;
-                            else
-                                state = START_STATE;
-                            break;
-                        case FLAG_RCV_STATE:
-                            if (byteRead == FLAG)
-                                state = FLAG_RCV_STATE;
-                            else if (byteRead == A) {
-                                aCheck = byteRead;
-                                state = A_RCV_STATE;
-                            } else
-                                state = START_STATE;
-                            break;
-                        case A_RCV_STATE:
-                            if (byteRead == FLAG)
-                                state = FLAG_RCV_STATE;
-                            else if (byteRead == C_RR((tramaI + 1) % 2) || byteRead == C_REJ(tramaI)) {
-                                cCheck = byteRead;
-                                state = C_RCV_STATE;
-                            } else
-                                state = START_STATE;
-                            break;
-                        case C_RCV_STATE:
-                            if (byteRead == FLAG)
-                                state = FLAG_RCV_STATE;
-                            else if (byteRead == (aCheck ^ cCheck))
-                                state = BCC_OK_STATE;
-                            else
-                                state = START_STATE;
-                            break;
-                        case BCC_OK_STATE:
-                            if (byteRead == FLAG)
-                                state = STOP_STATE;
-                            else
-                                state = START_STATE;
-                            break;
-                        default:
-                            break;
-                    }
-                }
+                processByte(A, C_RR(next), C_REJ(tramaI), &aCheck, &cCheck, &state);
             }
 
             if (state == STOP_STATE) {
@@ -320,10 +276,10 @@ int llwrite(const unsigned char *buf, int bufSize) {
             }
 
             // Interpretação da Resposta
-            if (cCheck == C_RR(0) || cCheck == C_RR(1)) {
+            if (cCheck == C_RR(next)) {
                 accepetedCheck = TRUE;
-                tramaI = (tramaI + 1) % 2;
-            } else if (cCheck == C_REJ(0) || cCheck == C_REJ(1)) {
+                tramaI = next;
+            } else if (cCheck == C_REJ(tramaI)) {
                 rejectedCheck = TRUE;
             }
         }
@@ -354,82 +310,47 @@ int llread(unsigned char *packet) {
     int index = 0;
     int size;
 
+    while (state != BCC_OK_STATE) {
+        processByte(A, N(0), N(1), &aCheck, &cCheck, &state);
+    }
     while (state != STOP_STATE) {
-        if (read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
-            switch (state) {
-                case START_STATE:
-                    if (byteRead == FLAG)
-                        state = FLAG_RCV_STATE;
-                    else
-                        state = START_STATE;
-                    break;
-                case FLAG_RCV_STATE:
-                    if (byteRead == FLAG)
-                        state = FLAG_RCV_STATE;
-                    else if (byteRead == A) {
-                        aCheck = byteRead;
-                        state = A_RCV_STATE;
-                    } else
-                        state = START_STATE;
-                    break;
-                case A_RCV_STATE:
-                    if (byteRead == FLAG)
-                        state = FLAG_RCV_STATE;
-                    else if (byteRead == N(0) || byteRead == N(1)) {
-                        cCheck = byteRead;
-                        state = C_RCV_STATE;
-                    } else
-                        state = START_STATE;
-                    break;
-                case C_RCV_STATE:
-                    if (byteRead == FLAG)
-                        state = FLAG_RCV_STATE;
-                    else if (byteRead == (aCheck ^ cCheck))
-                        state = DATA_STATE;
-                    else
-                        state = START_STATE;
-                    break;
-                case DATA_STATE:
-                    if (escFound) {
-                        if (byteRead == FLAG_ESCAPED)
-                            packet[index++] = FLAG;
-                        else if (byteRead == ESC_ESCAPED)
-                            packet[index++] = ESC;
+        if (state == BCC_OK_STATE && read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
+            if (escFound) {
+                if (byteRead == FLAG_ESCAPED)
+                    packet[index++] = FLAG;
+                else if (byteRead == ESC_ESCAPED)
+                    packet[index++] = ESC;
 
-                        escFound = FALSE;
-                    } else if (byteRead == ESC) {
-                        escFound = TRUE;
-                    } else if (byteRead == FLAG) {
-                        size = index + 5;  // F A C BCC1 F
-                        unsigned char bcc2 = packet[index - 1];
-                        index--;
-                        packet[index] = '\0';
-                        printLL("Recetor recebeu: ", packet, index);
-                        unsigned char bcc2Acc = packet[0];
-                        for (int i = 1; i < index; i++) {
-                            bcc2Acc ^= packet[i];
-                        }
-                        if (bcc2 == bcc2Acc && cCheck == N(tramaI)) {
-                            // success
-                            tramaI = (tramaI + 1) % 2;
-                            unsigned char n = C_RR(tramaI);
-                            unsigned char rr[5] = {FLAG, A, n, A ^ n, FLAG};
-                            write(fd, rr, sizeof(rr));
-                            state = STOP_STATE;
-                        } else {
-                            // error
-                            unsigned char n = C_REJ(tramaI);
-                            unsigned char rej[5] = {FLAG, A, n, A ^ n, FLAG};
-                            write(fd, rej, sizeof(rej));
-                            state = STOP_STATE;
-                            return -1;
-                        }
-                    } else {
-                        packet[index++] = byteRead;
-                    }
-                    break;
-                default:
-                    break;
+                escFound = FALSE;
+            } else if (byteRead == ESC) {
+                escFound = TRUE;
+            } else if (byteRead == FLAG) {
+                size = index + 5;  // F A C BCC1 F
+                unsigned char bcc2 = packet[index - 1];
+                index--;
+                packet[index] = '\0';
+                printLL("Recetor recebeu: ", packet, index);
+                unsigned char bcc2Acc = packet[0];
+                for (int i = 1; i < index; i++) {
+                    bcc2Acc ^= packet[i];
+                }
+                if (bcc2 == bcc2Acc && cCheck == N(tramaI)) {
+                    // success
+                    tramaI = (tramaI + 1) % 2;
+                    unsigned char n = C_RR(tramaI);
+                    unsigned char rr[5] = {FLAG, A, n, A ^ n, FLAG};
+                    write(fd, rr, sizeof(rr));
+                    state = STOP_STATE;
+                } else {
+                    // error
+                    unsigned char n = C_REJ(tramaI);
+                    unsigned char rej[5] = {FLAG, A, n, A ^ n, FLAG};
+                    write(fd, rej, sizeof(rej));
+                    state = STOP_STATE;
+                    return -1;
+                }
+            } else {
+                packet[index++] = byteRead;
             }
         }
     }
@@ -455,7 +376,7 @@ int llclose(int showStatistics) {
             alarm(timeout);
             alarmEnabled = TRUE;
             while (alarmEnabled == TRUE && state != STOP_STATE) {
-                processByte(A_CLOSE, C_DISC, &aCheck, &cCheck, &state);
+                processByte(A_CLOSE, C_DISC, C_DISC, &aCheck, &cCheck, &state);
             }
             if (state == STOP_STATE) {
                 alarm(0);
@@ -476,7 +397,7 @@ int llclose(int showStatistics) {
         write(fd, ua, sizeof(ua));
     } else if (role == LlRx) {
         while (state != STOP_STATE) {
-            processByte(A, C_DISC, &aCheck, &cCheck, &state);
+            processByte(A, C_DISC, C_DISC, &aCheck, &cCheck, &state);
         }
         unsigned char disc[5] = {FLAG, A_CLOSE, C_DISC, A_CLOSE ^ C_DISC, FLAG};
         printLL("LLCLOSE - Rx enviou: ", disc, sizeof(disc));
