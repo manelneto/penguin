@@ -72,8 +72,8 @@ void processByte(int fd, unsigned char actual_c, unsigned char *a_check, unsigne
         /*if (role == LlTx)
             printf("Tx read: 0x%0x\n", byte_read);
         else if (role == LlRx)
-            printf("Rx read: 0x%0x\n", byte_read);
-        */switch (*state) {
+            printf("Rx read: 0x%0x\n", byte_read);*/
+        switch (*state) {
             case START_STATE:
                 // printf("START_STATE\n");
                 if (byte_read == FLAG)
@@ -85,7 +85,7 @@ void processByte(int fd, unsigned char actual_c, unsigned char *a_check, unsigne
                 // printf("FLAG_RCV_STATE\n");
                 if (byte_read == FLAG)
                     *state = FLAG_RCV_STATE;
-                else if (byte_read == A) {
+                else if (byte_read == A || byte_read == A_CLOSE) {
                     *a_check = byte_read;
                     *state = A_RCV_STATE;
                 } else
@@ -197,7 +197,7 @@ int llopen(LinkLayer connectionParameters) {
         exit(-1);
     }
 
-    return 0;
+    return 1;
 }
 
 ////////////////////////////////////////////////
@@ -337,7 +337,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     free(dataBcc2);
     free(frame);
-    return rejectedCheck;
+    return 1;
 }
 
 ////////////////////////////////////////////////
@@ -421,7 +421,7 @@ int llread(unsigned char *packet) {
                             unsigned char bufferRej[5] = {FLAG, A, rej, A ^ rej, FLAG};
                             write(fd, bufferRej, sizeof(bufferRej));
                             state = STOP_STATE;
-                            return 1;
+                            return -1;
                         }
                     } else {
                         packet[index++] = byte_read;
@@ -432,7 +432,7 @@ int llread(unsigned char *packet) {
             }
         }
     }
-    return 0;
+    return 1;
 }
 
 ////////////////////////////////////////////////
@@ -461,10 +461,8 @@ int llclose(int showStatistics) {
             tries--;
             alarmEnabled = TRUE;
         } while (tries > 0 && state != STOP_STATE);
-
         unsigned char bufferUa[5] = {FLAG, A_CLOSE, C_UA, A_CLOSE ^ C_UA, FLAG};
         write(fd, bufferUa, sizeof(bufferUa));
-
     } else if (role == LlRx) {
         while (state != STOP_STATE) {
             processByte(fd, C_DISC, &a_check, &c_check, &state);
@@ -478,5 +476,5 @@ int llclose(int showStatistics) {
     }
 
     close(fd);
-    return 0;
+    return 1;
 }
