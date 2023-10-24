@@ -22,11 +22,11 @@
 #define A_CLOSE 0x01
 #define C_SET 0x03
 #define C_UA 0x07
-#define C_RR(r) ((r << 7) | 0x05)
-#define C_REJ(r) ((r << 7) | 0x01)
+#define C_RR(r) (((r) << 7) | 0x05)
+#define C_REJ(r) (((r) << 7) | 0x01)
 #define C_DISC 0x0B
 
-#define N(s) (s << 6)
+#define N(s) ((s) << 6)
 
 #define ESC 0x7D
 #define FLAG_ESCAPED 0x5E
@@ -313,6 +313,20 @@ int llread(unsigned char *packet) {
     while (state != BCC_OK_STATE) {
         processByte(A, N(0), N(1), &aCheck, &cCheck, &state);
     }
+
+    if (cCheck != N(tramaI)) {
+        // recebeu trama que não estava à espera
+        while (byteRead != FLAG) {
+            // ignora - limpa a porta série
+            read(fd, &byteRead, sizeof(byteRead));
+        }
+        // responde a indicar qual é a trama que está pronto para receber
+        unsigned char n = C_RR(tramaI);
+        unsigned char rr[5] = {FLAG, A, n, A ^ n, FLAG};
+        write(fd, rr, sizeof(rr));
+        return -1;
+    }
+
     while (state != STOP_STATE) {
         if (state == BCC_OK_STATE && read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
             if (escFound) {
@@ -334,7 +348,7 @@ int llread(unsigned char *packet) {
                 for (int i = 1; i < index; i++) {
                     bcc2Acc ^= packet[i];
                 }
-                if (bcc2 == bcc2Acc && cCheck == N(tramaI)) {
+                if (bcc2 == bcc2Acc) {
                     // success
                     tramaI = (tramaI + 1) % 2;
                     unsigned char n = C_RR(tramaI);
