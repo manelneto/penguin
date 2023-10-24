@@ -12,6 +12,8 @@
 #include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
+#include <time.h>
+
 
 // Baudrate settings are defined in <asm/termbits.h>, which is
 // included by <termios.h>
@@ -32,6 +34,7 @@ typedef enum
 // Returns: serial port file descriptor (fd).
 int openSerialPort(const char *serialPort, struct termios *oldtio, struct termios *newtio)
 {
+    srand(time(NULL));
     int fd = open(serialPort, O_RDWR | O_NOCTTY);
 
     if (fd < 0)
@@ -59,7 +62,12 @@ int openSerialPort(const char *serialPort, struct termios *oldtio, struct termio
 // Add noise to a buffer, by flipping the byte in the "errorIndex" position.
 void addNoiseToBuffer(unsigned char *buf, size_t errorIndex)
 {
-    buf[errorIndex] ^= 0xFF;
+    int r = rand() % 100;
+    if (r < 10) {
+        // P = 10%
+        printf("\nBCC1 flipped: 0x%x -> 0x%x\n\n", buf[errorIndex], buf[errorIndex] ^ 0xFF);
+        buf[errorIndex] ^= 0xFF;
+    }
 }
 
 int main(int argc, char *argv[])
@@ -135,7 +143,7 @@ int main(int argc, char *argv[])
             {
                 if (cableMode == CableModeNoise)
                 {
-                    addNoiseToBuffer(tx2rx, 0);
+                    addNoiseToBuffer(tx2rx, 3);  // 3 -> BCC1
                 }
 
                 int bytesToRx = write(fdRx, tx2rx, bytesFromTx);
@@ -156,7 +164,7 @@ int main(int argc, char *argv[])
             {
                 if (cableMode == CableModeNoise)
                 {
-                    addNoiseToBuffer(rx2tx, 0);
+                    addNoiseToBuffer(rx2tx, 3);  // 3 -> BCC1
                 }
 
                 int bytesToTx = write(fdTx, rx2tx, bytesFromRx);
