@@ -18,7 +18,7 @@
 
 #define MAX_DATA_SIZE 256
 
-// Imprime "Application Layer" seguido de title e de content
+// Imprime "Application Layer" seguido do título e do conteúdo
 void printAL(char *title, unsigned char *content, int contentSize) {
     // DEBUG
     printf("\nApplication Layer\n");
@@ -38,17 +38,17 @@ char logaritmo2(int n) {
     return res;
 }
 
-// Constrói e retorna um pacote de controlo de tipo (START/END) dado por controlField, com o tamanho do ficheiro e o nome do ficheiro
+// Constrói e retorna um pacote de controlo de tipo (START/END) dado por 'controlField', com o tamanho do ficheiro e o nome do ficheiro
 unsigned char *buildControlPacket(unsigned char controlField, long int fileSize, const char *fileName, int *packetSize) {
     unsigned char fileSizeLength = 1 + (logaritmo2(fileSize) / 8);  // número de bits necessários para representar o tamanho do ficheiro
-    unsigned char fileNameLength = strlen(fileName);  // comprimento do nome do ficheiro
+    unsigned char fileNameLength = strlen(fileName);                // comprimento do nome do ficheiro
 
     *packetSize = 5 + fileSizeLength + fileNameLength;  // 5 -> C + T1 + L1 + T2 + L2
     unsigned char *controlPacket = (unsigned char *)malloc(*packetSize);
 
-    controlPacket[0] = controlField;  // C
+    controlPacket[0] = controlField;              // C
     controlPacket[1] = CONTROL_PACKET_FILE_SIZE;  // T1
-    controlPacket[2] = fileSizeLength;  // L1
+    controlPacket[2] = fileSizeLength;            // L1
 
     int index;
     for (index = 3; index < (fileSizeLength + 3); index++) {
@@ -59,8 +59,8 @@ unsigned char *buildControlPacket(unsigned char controlField, long int fileSize,
         controlPacket[index] = leftmost;
     }
 
-    controlPacket[index++] = CONTROL_PACKET_FILE_NAME;  // T2
-    controlPacket[index++] = fileNameLength;  // L2
+    controlPacket[index++] = CONTROL_PACKET_FILE_NAME;        // T2
+    controlPacket[index++] = fileNameLength;                  // L2
     memcpy(controlPacket + index, fileName, fileNameLength);  // V2 - nome do ficheiro
 
     printAL("Pacote de Controlo Construído", controlPacket, *packetSize);  // DEBUG
@@ -73,7 +73,7 @@ unsigned char *buildDataPacket(int dataSize, unsigned char *data, int *packetSiz
     *packetSize = dataSize + 3;  // 3 -> C + L2 + L1
     unsigned char *dataPacket = (unsigned char *)malloc(*packetSize);
 
-    dataPacket[0] = DATA_PACKET;  // C
+    dataPacket[0] = DATA_PACKET;     // C
     dataPacket[1] = dataSize / 256;  // L1
     dataPacket[2] = dataSize % 256;  // L2
     // dataSize = 256 * L2 + L1
@@ -103,7 +103,7 @@ void sendDataPacket(int size, unsigned char *fileContent) {
 }
 
 // Lê e interpreta um pacote de controlo, retirando o tamanho do ficheiro e retornando o nome do ficheiro
-char* parseControlPacket(unsigned char *packet, int *fileSize) {
+char *parseControlPacket(unsigned char *packet, int *fileSize) {
     unsigned char fileSizeLength = packet[2];
     *fileSize = 0;
     for (unsigned char i = 3; i < (fileSizeLength + 3); i++) {

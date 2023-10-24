@@ -48,25 +48,44 @@ int nRetransmissions;
 int timeout;
 LinkLayerRole role;
 
+// Imprime "Link Layer" seguido do título e do conteúdo
 void printLL(char *title, unsigned char *content, int contentSize) {
     // DEBUG
     printf("\nLink Layer\n");
     for (int i = 0; title[i] != '\0'; i++) printf("%c", title[i]);
+    printf("\n");
     for (int i = 0; i < contentSize; i++) printf("0x%x ", content[i]);
     printf("\n");
 }
 
+// Lida com uma interrupção do alarme: desativa-o, incrementa um contador e imprime "ALARM"
 void alarmHandler(int signal) {
     alarmEnabled = FALSE;
     alarmCount++;
-    printf("\nALARM!\n");
+    printf("\nALARM\n");
 }
 
+/**
+ * Máquina de estados que processa cada byte lido da porta série
+ * @param a valor esperado no campo A
+ * @param c1 um dos possíveis valores esperados no campo C
+ * @param c2 outro dos possíveis valores esperados no campo C
+ * @param aCheck valor lido do campo A
+ * @param cCheck valor lido do campo C
+ * @param state estado atual
+ * 
+ * @details
+ * A existência dos parâmetros c1 e c2 permite aproveitar a mesma máquina de estados para llopen, llwrite, llread e llclose
+ * Em llopen, só existe um valor esperado para o campo C (C_SET ou C_UA), pelo que c1 = c2
+ * Em llread, existem dois valores esperados para o campo C (C_RR e C_REJ), pelo que c1 != c2
+ * Em llwrite, existem dois valores esperados para o campo C (N(0) e N(1)), pelo que c1 != c2
+ * Em llclose, só existe um valor esperado para o campo C (C_DISC), pelo que c1 = c2
+*/
 void processByte(unsigned char a, unsigned char c1, unsigned char c2, unsigned char *aCheck, unsigned char *cCheck, State *state) {
     unsigned char byteRead;
 
     if (read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
-        printLL("Byte: ", &byteRead, sizeof(byteRead));
+        printLL("Byte", &byteRead, sizeof(byteRead));
         switch (*state) {
             case START_STATE:
                 if (byteRead == FLAG)
@@ -118,7 +137,7 @@ void processByte(unsigned char a, unsigned char c1, unsigned char c2, unsigned c
 int llopen(LinkLayer connectionParameters) {
     fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
     if (fd < 0) {
-        printf("Error opening serial port: %s\n", connectionParameters.serialPort);
+        printf("Erro a abrir a porta série %s\n", connectionParameters.serialPort);
         return -1;
     }
 
@@ -126,7 +145,7 @@ int llopen(LinkLayer connectionParameters) {
     struct termios newtio;
 
     if (tcgetattr(fd, &oldtio) == -1) {
-        printf("tcgetattr error\n");
+        printf("Erro a usar tcgetattr\n");
         return -1;
     }
 
@@ -142,7 +161,7 @@ int llopen(LinkLayer connectionParameters) {
     tcflush(fd, TCIOFLUSH);
 
     if (tcsetattr(fd, TCSANOW, &newtio) == -1) {
-        printf("tcsetattr error\n");
+        printf("Erro a usar tcsetattr\n");
         return -1;
     }
 
@@ -160,34 +179,38 @@ int llopen(LinkLayer connectionParameters) {
         unsigned char set[5] = {FLAG, A, C_SET, A ^ C_SET, FLAG};
 
         do {
-            printLL("LLOPEN - Tx enviou: ", set, sizeof(set));
+            printLL("LLOPEN - enviado SET", set, sizeof(set));  // DEBUG
             write(fd, set, sizeof(set));
             alarm(timeout);
             alarmEnabled = TRUE;
             while (alarmEnabled == TRUE && state != STOP_STATE) {
-                processByte(A, C_UA, C_UA, &aCheck, &cCheck, &state);
+                // Enquanto o alarme não tiver disparado e estado não for o final, processa os bytes da porta série (um de cada vez)
+                processByte(A, C_UA, C_UA, &aCheck, &cCheck, &state);  // Espera um UA
             }
             if (state == STOP_STATE) {
+                // O estado final foi alcançado, pelo que o alarme pode ser desativado
                 alarm(0);
                 alarmEnabled = FALSE;
             } else {
-                // timeout
+                // O alarme tocou, pelo que ocorreu timeout e deve haver retransmissão (se ainda não tiver sido excedido o número máximo de tentativas)
                 tries--;
             }
         } while (tries >= 0 && state != STOP_STATE);
 
         if (state != STOP_STATE) {
-            printf("LLOPEN: Tx did not receive answer from Rx\n");
+            // Foi excedido o número máximo de tentativas de retransmissão
+            printf("LLOPEN - UA não foi recebido\n");
             return -1;
         }
     } else if (connectionParameters.role == LlRx) {
         while (state != STOP_STATE) {
-            processByte(A, C_SET, C_SET, &aCheck, &cCheck, &state);
+            // Processa os bytes da porta série (um de cada vez)
+            processByte(A, C_SET, C_SET, &aCheck, &cCheck, &state);  // Espera um SET
         }
         unsigned char ua[5] = {FLAG, A, C_UA, A ^ C_UA, FLAG};
-        write(fd, ua, sizeof(ua));
+        write(fd, ua, sizeof(ua));  // Quando receber o SET, responde com UA
     } else {
-        printf("connectionParameters.role error\n");
+        printf("Erro em connectionParameters.role\n");
         return -1;
     }
 
@@ -385,39 +408,43 @@ int llclose(int showStatistics) {
     if (role == LlTx) {
         unsigned char disc[5] = {FLAG, A, C_DISC, A ^ C_DISC, FLAG};
         do {
-            printLL("LLCLOSE - Tx enviou: ", disc, sizeof(disc));
+            printLL("LLCLOSE - enviado DISC", disc, sizeof(disc));  // DEBUG
             write(fd, disc, sizeof(disc));
             alarm(timeout);
             alarmEnabled = TRUE;
             while (alarmEnabled == TRUE && state != STOP_STATE) {
-                processByte(A_CLOSE, C_DISC, C_DISC, &aCheck, &cCheck, &state);
+                // Enquanto o alarme não tiver disparado e estado não for o final, processa os bytes da porta série (um de cada vez)
+                processByte(A_CLOSE, C_DISC, C_DISC, &aCheck, &cCheck, &state);  // Espera um DISC
             }
             if (state == STOP_STATE) {
+                // O estado final foi alcançado, pelo que o alarme pode ser desativado
                 alarm(0);
                 alarmEnabled = FALSE;
             } else {
-                // timeout
+                // O alarme tocou, pelo que ocorreu timeout e deve haver retransmissão (se ainda não tiver sido excedido o número máximo de tentativas)
                 tries--;
             }
         } while (tries >= 0 && state != STOP_STATE);
 
         if (state != STOP_STATE) {
-            printf("LLCLOSE: Tx did not receive answer from Rx\n");
+            // Foi excedido o número máximo de tentativas de retransmissão
+            printf("LLCLOSE - DISC não foi recebido\n");
             return -1;
         }
 
         unsigned char ua[5] = {FLAG, A_CLOSE, C_UA, A_CLOSE ^ C_UA, FLAG};
-        printLL("LLCLOSE - Tx enviou: ", ua, sizeof(ua));
+        printLL("LLCLOSE - enviado UA", ua, sizeof(ua));  // DEBUG
         write(fd, ua, sizeof(ua));
     } else if (role == LlRx) {
         while (state != STOP_STATE) {
-            processByte(A, C_DISC, C_DISC, &aCheck, &cCheck, &state);
+            // Processa os bytes da porta série (um de cada vez)
+            processByte(A, C_DISC, C_DISC, &aCheck, &cCheck, &state);  // Espera um DISC
         }
         unsigned char disc[5] = {FLAG, A_CLOSE, C_DISC, A_CLOSE ^ C_DISC, FLAG};
-        printLL("LLCLOSE - Rx enviou: ", disc, sizeof(disc));
+        printLL("LLCLOSE - enviado DISC", disc, sizeof(disc));  // DEBUG
         write(fd, disc, sizeof(disc));
     } else {
-        printf("connectionParameters.role error\n");
+        printf("Erro em connectionParameters.role\n");
         return -1;
     }
 
