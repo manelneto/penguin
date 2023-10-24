@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <termios.h>
+#include <time.h>
 #include <unistd.h>
 
 // MISC
@@ -48,6 +49,29 @@ int nRetransmissions;
 int timeout;
 LinkLayerRole role;
 
+// Estatísticas
+clock_t start;
+int totalTramas = 0;
+int totalTramasI = 0;
+int totalTramasSU = 0;
+int totalSET = 0;
+int totalUA = 0;
+int totalRR = 0;
+int totalREJ = 0;
+int totalDISC = 0;
+int totalBytes = 0;
+int totalRetransmissions = 0;
+int totalBCC1 = 0;
+int totalBCC2 = 0;
+int totalDuplicados = 0;
+int totalOpen = 0;
+int totalWrite = 0;
+int totalRead = 0;
+int totalClose = 0;
+int totalStuffed = 0;
+int totalFlagStuffed = 0;
+int totalEscStuffed = 0;
+
 // Imprime "Link Layer" seguido do título e do conteúdo
 void printLL(char *title, unsigned char *content, int contentSize) {
     // DEBUG
@@ -85,7 +109,8 @@ void processByte(unsigned char a, unsigned char c1, unsigned char c2, unsigned c
     unsigned char byteRead;
 
     if (read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
-        printLL("Byte Lido", &byteRead, sizeof(byteRead));
+        totalBytes++;
+        printLL("Byte Lido", &byteRead, sizeof(byteRead));  // DEBUG
         switch (*state) {
             case START_STATE:
                 if (byteRead == FLAG)
@@ -116,8 +141,10 @@ void processByte(unsigned char a, unsigned char c1, unsigned char c2, unsigned c
                     *state = FLAG_RCV_STATE;
                 else if (byteRead == (*aCheck ^ *cCheck))
                     *state = BCC_OK_STATE;
-                else
+                else {
+                    totalBCC1++;
                     *state = START_STATE;
+                }
                 break;
             case BCC_OK_STATE:
                 if (byteRead == FLAG)
@@ -135,6 +162,8 @@ void processByte(unsigned char a, unsigned char c1, unsigned char c2, unsigned c
 // LLOPEN
 ////////////////////////////////////////////////
 int llopen(LinkLayer connectionParameters) {
+    totalOpen++;
+    start = clock();
     fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
     if (fd < 0) {
         printf("Erro a abrir a porta série %s\n", connectionParameters.serialPort);
@@ -180,6 +209,9 @@ int llopen(LinkLayer connectionParameters) {
 
         do {
             printLL("LLOPEN - enviado SET", set, sizeof(set));  // DEBUG
+            totalTramas++;
+            totalTramasSU++;
+            totalSET++;
             write(fd, set, sizeof(set));
             alarm(timeout);
             alarmEnabled = TRUE;
@@ -194,11 +226,13 @@ int llopen(LinkLayer connectionParameters) {
             } else {
                 // O alarme tocou, pelo que ocorreu timeout e deve haver retransmissão (se ainda não tiver sido excedido o número máximo de tentativas)
                 tries--;
+                totalRetransmissions++;
             }
         } while (tries >= 0 && state != STOP_STATE);
 
         if (state != STOP_STATE) {
             // Foi excedido o número máximo de tentativas de retransmissão
+            totalRetransmissions--;
             printf("LLOPEN - UA não foi recebido\n");
             return -1;
         }
@@ -209,7 +243,10 @@ int llopen(LinkLayer connectionParameters) {
         }
         unsigned char ua[5] = {FLAG, A, C_UA, A ^ C_UA, FLAG};
         printLL("LLOPEN - enviado UA", ua, sizeof(ua));  // DEBUG
-        write(fd, ua, sizeof(ua));                       // quando receber o SET, responde com UA
+        totalTramas++;
+        totalTramasSU++;
+        totalUA++;
+        write(fd, ua, sizeof(ua));  // quando receber o SET, responde com UA
     } else {
         printf("Erro em connectionParameters.role\n");
         return -1;
@@ -222,6 +259,7 @@ int llopen(LinkLayer connectionParameters) {
 // LLWRITE
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize) {
+    totalWrite++;
     unsigned char bcc2 = buf[0];
     for (int i = 1; i < bufSize; i++) {
         // Cálculo do BCC2
@@ -233,9 +271,13 @@ int llwrite(const unsigned char *buf, int bufSize) {
     for (int i = 0; i < bufSize; i++) {
         // Stuffing dos dados
         if (buf[i] == FLAG) {
+            totalStuffed++;
+            totalFlagStuffed++;
             dataBcc2[index++] = ESC;
             dataBcc2[index++] = FLAG_ESCAPED;
         } else if (buf[i] == ESC) {
+            totalStuffed++;
+            totalEscStuffed++;
             dataBcc2[index++] = ESC;
             dataBcc2[index++] = ESC_ESCAPED;
         } else {
@@ -245,9 +287,13 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     // Stuffing do BCC2
     if (bcc2 == FLAG) {
+        totalStuffed++;
+        totalFlagStuffed++;
         dataBcc2[index++] = ESC;
         dataBcc2[index++] = FLAG_ESCAPED;
     } else if (bcc2 == ESC) {
+        totalStuffed++;
+        totalEscStuffed++;
         dataBcc2[index++] = ESC;
         dataBcc2[index++] = ESC_ESCAPED;
     } else {
@@ -283,6 +329,8 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     do {
         printLL("LL WRITE - frame enviado", frame, size);  // DEBUG
+        totalTramas++;
+        totalTramasI++;
         write(fd, frame, size);
         alarm(timeout);
         alarmEnabled = TRUE;
@@ -302,6 +350,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
             } else {
                 // O alarme tocou, pelo que ocorreu timeout e deve haver retransmissão (se ainda não tiver sido excedido o número máximo de tentativas)
                 tries--;
+                totalRetransmissions++;
                 continue;
             }
 
@@ -319,6 +368,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     if (state != STOP_STATE) {
         // Foi excedido o número máximo de tentativas de retransmissão
+        totalRetransmissions--;
         printf("LLWRITE - não foi recebida resposta\n");
         return -1;
     }
@@ -332,6 +382,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
 // LLREAD
 ////////////////////////////////////////////////
 int llread(unsigned char *packet) {
+    totalRead++;
     static unsigned char tramaI = 0;
 
     State state = START_STATE;
@@ -350,14 +401,19 @@ int llread(unsigned char *packet) {
 
     if (cCheck != N(tramaI)) {
         // Recebeu uma trama de que não estava à espera (duplicada)
+        totalDuplicados++;
         while (byteRead != FLAG) {
             // Lê os bytes da porta série (um de cada vez), mas ignora-os - apenas para limpar
+            totalBytes++;
             read(fd, &byteRead, sizeof(byteRead));
         }
         // Responde com a indicação de qual é o índice da trama que está pronto para receber
         unsigned char n = C_RR(tramaI);
         unsigned char rr[5] = {FLAG, A, n, A ^ n, FLAG};
         printLL("LL WRITE - RR enviado", rr, sizeof(rr));  // DEBUG
+        totalTramas++;
+        totalTramasSU++;
+        totalRR++;
         write(fd, rr, sizeof(rr));
         return -1;
     }
@@ -365,13 +421,18 @@ int llread(unsigned char *packet) {
     while (state != STOP_STATE) {
         // Enquanto o estado não for o final, processa os bytes da porta série (um de cada vez)
         if (state == BCC_OK_STATE && read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
+            totalBytes++;
             // Destuffing dos dados e do BCC2
             if (escFound) {
-                if (byteRead == FLAG_ESCAPED)
+                if (byteRead == FLAG_ESCAPED) {
+                    totalStuffed++;
+                    totalFlagStuffed++;
                     packet[index++] = FLAG;
-                else if (byteRead == ESC_ESCAPED)
+                } else if (byteRead == ESC_ESCAPED) {
+                    totalStuffed++;
+                    totalEscStuffed++;
                     packet[index++] = ESC;
-
+                }
                 escFound = FALSE;
             } else if (byteRead == ESC) {
                 escFound = TRUE;
@@ -392,13 +453,20 @@ int llread(unsigned char *packet) {
                     unsigned char n = C_RR(tramaI);
                     unsigned char rr[5] = {FLAG, A, n, A ^ n, FLAG};
                     printLL("LLWRITE - RR enviado", rr, sizeof(rr));  // DEBUG
+                    totalTramas++;
+                    totalTramasSU++;
+                    totalRR++;
                     write(fd, rr, sizeof(rr));
                     state = STOP_STATE;
                 } else {
                     // O valor de BCC está incorreto, pelo que a trama deve ser retransmitida
+                    totalBCC2++;
                     unsigned char n = C_REJ(tramaI);
                     unsigned char rej[5] = {FLAG, A, n, A ^ n, FLAG};
                     printLL("LLWRITE - REJ enviado", rej, sizeof(rej));  // DEBUG
+                    totalTramas++;
+                    totalTramasSU++;
+                    totalREJ++;
                     write(fd, rej, sizeof(rej));
                     state = STOP_STATE;
                     return -1;
@@ -415,7 +483,7 @@ int llread(unsigned char *packet) {
 // LLCLOSE
 ////////////////////////////////////////////////
 int llclose(int showStatistics) {
-    // TODO - showStatistics
+    totalClose++;
     State state = START_STATE;
     unsigned char aCheck;
     unsigned char cCheck;
@@ -426,6 +494,9 @@ int llclose(int showStatistics) {
         unsigned char disc[5] = {FLAG, A, C_DISC, A ^ C_DISC, FLAG};
         do {
             printLL("LLCLOSE - enviado DISC", disc, sizeof(disc));  // DEBUG
+            totalTramas++;
+            totalTramasSU++;
+            totalDISC++;
             write(fd, disc, sizeof(disc));
             alarm(timeout);
             alarmEnabled = TRUE;
@@ -440,18 +511,23 @@ int llclose(int showStatistics) {
             } else {
                 // O alarme tocou, pelo que ocorreu timeout e deve haver retransmissão (se ainda não tiver sido excedido o número máximo de tentativas)
                 tries--;
+                totalRetransmissions++;
             }
         } while (tries >= 0 && state != STOP_STATE);
 
         if (state != STOP_STATE) {
             // Foi excedido o número máximo de tentativas de retransmissão
+            totalRetransmissions--;
             printf("LLCLOSE - DISC não foi recebido\n");
             return -1;
         }
 
         unsigned char ua[5] = {FLAG, A_CLOSE, C_UA, A_CLOSE ^ C_UA, FLAG};
         printLL("LLCLOSE - enviado UA", ua, sizeof(ua));  // DEBUG
-        write(fd, ua, sizeof(ua));                        // quando receber o DISC, rsponde com UA
+        totalTramas++;
+        totalTramasSU++;
+        totalUA++;
+        write(fd, ua, sizeof(ua));  // quando receber o DISC, rsponde com UA
     } else if (role == LlRx) {
         while (state != STOP_STATE) {
             // Enquanto o estado não for o final, processa os bytes da porta série (um de cada vez)
@@ -459,12 +535,44 @@ int llclose(int showStatistics) {
         }
         unsigned char disc[5] = {FLAG, A_CLOSE, C_DISC, A_CLOSE ^ C_DISC, FLAG};
         printLL("LLCLOSE - enviado DISC", disc, sizeof(disc));  // DEBUG
-        write(fd, disc, sizeof(disc));                          // quando receber o DISC, responde com DISC
+        totalTramas++;
+        totalTramasSU++;
+        totalDISC++;
+        write(fd, disc, sizeof(disc));  // quando receber o DISC, responde com DISC
     } else {
         printf("Erro em connectionParameters.role\n");
         return -1;
     }
 
     close(fd);
+
+    if (showStatistics) {
+        clock_t end = clock();
+        float seconds = (float)(end - start) / CLOCKS_PER_SEC;
+        printf("\n---------- Estatísticas ----------\n");
+        printf("\nTempo de Execução: %f segundos\n", seconds);
+        printf("\nInvocações a llopen: %d\n", totalOpen);
+        printf("Invocações a llwrite: %d\n", totalWrite);
+        printf("Invocações a llread: %d\n", totalRead);
+        printf("Invocações a llclose: %d\n", totalClose);
+        printf("\nTramas Enviadas: %d\n", totalTramas);
+        printf("\nTramas de Informação: %d\n", totalTramasI);
+        printf("Tramas de Supervisão/Não Numeradas: %d\n", totalTramasSU);
+        printf("\nTramas SET: %d\n", totalSET);
+        printf("Tramas UA: %d\n", totalUA);
+        printf("Tramas RR: %d\n", totalRR);
+        printf("Tramas REJ: %d\n", totalREJ);
+        printf("Tramas DISC: %d\n", totalDISC);
+        printf("\nBytes Recebidos: %d\n", totalBytes);
+        printf("\nBytes Stuffed/Destuffed: %d\n", totalStuffed);
+        printf("FLAG Stuffed/Destuffed: %d\n", totalFlagStuffed);
+        printf("ESC Stuffed/Destuffed: %d\n", totalEscStuffed);
+        printf("\nAlarmes: %d\n", alarmCount);
+        printf("Retransmissões: %d\n", totalRetransmissions);
+        printf("Erros no BCC1: %d\n", totalBCC1);
+        printf("Erros no BCC2: %d\n", totalBCC2);
+        printf("Tramas Duplicadas: %d\n", totalDuplicados);
+    }
+
     return 1;
 }
