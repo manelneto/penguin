@@ -73,19 +73,19 @@ void alarmHandler(int signal) {
  * @param aCheck valor lido do campo A
  * @param cCheck valor lido do campo C
  * @param state estado atual
- * 
+ *
  * @details
  * A existência dos parâmetros c1 e c2 permite aproveitar a mesma máquina de estados para llopen, llwrite, llread e llclose
  * Em llopen, só existe um valor esperado para o campo C (C_SET ou C_UA), pelo que c1 = c2
  * Em llread, existem dois valores esperados para o campo C (C_RR e C_REJ), pelo que c1 != c2
  * Em llwrite, existem dois valores esperados para o campo C (N(0) e N(1)), pelo que c1 != c2
  * Em llclose, só existe um valor esperado para o campo C (C_DISC), pelo que c1 = c2
-*/
+ */
 void processByte(unsigned char a, unsigned char c1, unsigned char c2, unsigned char *aCheck, unsigned char *cCheck, State *state) {
     unsigned char byteRead;
 
     if (read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
-        printLL("Byte", &byteRead, sizeof(byteRead));
+        printLL("Byte Lido", &byteRead, sizeof(byteRead));
         switch (*state) {
             case START_STATE:
                 if (byteRead == FLAG)
@@ -185,7 +185,7 @@ int llopen(LinkLayer connectionParameters) {
             alarmEnabled = TRUE;
             while (alarmEnabled == TRUE && state != STOP_STATE) {
                 // Enquanto o alarme não tiver disparado e estado não for o final, processa os bytes da porta série (um de cada vez)
-                processByte(A, C_UA, C_UA, &aCheck, &cCheck, &state);  // Espera um UA
+                processByte(A, C_UA, C_UA, &aCheck, &cCheck, &state);  // espera um UA
             }
             if (state == STOP_STATE) {
                 // O estado final foi alcançado, pelo que o alarme pode ser desativado
@@ -205,10 +205,11 @@ int llopen(LinkLayer connectionParameters) {
     } else if (connectionParameters.role == LlRx) {
         while (state != STOP_STATE) {
             // Processa os bytes da porta série (um de cada vez)
-            processByte(A, C_SET, C_SET, &aCheck, &cCheck, &state);  // Espera um SET
+            processByte(A, C_SET, C_SET, &aCheck, &cCheck, &state);  // espera um SET
         }
         unsigned char ua[5] = {FLAG, A, C_UA, A ^ C_UA, FLAG};
-        write(fd, ua, sizeof(ua));  // Quando receber o SET, responde com UA
+        printLL("LLOPEN - enviado UA", ua, sizeof(ua));  // DEBUG
+        write(fd, ua, sizeof(ua));                       // quando receber o SET, responde com UA
     } else {
         printf("Erro em connectionParameters.role\n");
         return -1;
@@ -223,12 +224,14 @@ int llopen(LinkLayer connectionParameters) {
 int llwrite(const unsigned char *buf, int bufSize) {
     unsigned char bcc2 = buf[0];
     for (int i = 1; i < bufSize; i++) {
+        // Cálculo do BCC2
         bcc2 ^= buf[i];
     }
 
-    unsigned char *dataBcc2 = (unsigned char *)malloc(2 * bufSize + 2);
+    unsigned char *dataBcc2 = (unsigned char *)malloc(2 * bufSize + 2);  // aloca memória dinâmica para o pior caso: ter de fazer stuffing de todos os bytes de dados e do BCC2
     int index = 0;
     for (int i = 0; i < bufSize; i++) {
+        // Stuffing dos dados
         if (buf[i] == FLAG) {
             dataBcc2[index++] = ESC;
             dataBcc2[index++] = FLAG_ESCAPED;
@@ -240,6 +243,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
         }
     }
 
+    // Stuffing do BCC2
     if (bcc2 == FLAG) {
         dataBcc2[index++] = ESC;
         dataBcc2[index++] = FLAG_ESCAPED;
@@ -256,7 +260,8 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
     unsigned char next = (tramaI + 1) % 2;
 
-    unsigned char *frame = malloc(index + 5);  // F A C BCC1 F;
+    // Construção do frame a transmitir
+    unsigned char *frame = malloc(index + 5);  // 5 -> F A C BCC1 F;
     frame[0] = FLAG;
     frame[1] = A;
     frame[2] = n;
@@ -266,7 +271,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
     }
     frame[index + 4] = FLAG;
 
-    int size = index + 5;  // F A C BCC1 F
+    int size = index + 5;  // 5 -> F A C BCC1 F
 
     State state = START_STATE;
     unsigned char aCheck;
@@ -277,7 +282,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
     int tries = nRetransmissions;
 
     do {
-        printLL("LL WRITE - Tx enviou: ", frame, size);
+        printLL("LL WRITE - frame enviado", frame, size);  // DEBUG
         write(fd, frame, size);
         alarm(timeout);
         alarmEnabled = TRUE;
@@ -286,30 +291,35 @@ int llwrite(const unsigned char *buf, int bufSize) {
         while (alarmEnabled == TRUE && rejectedCheck == FALSE && accepetedCheck == FALSE) {
             state = START_STATE;
             while (state != STOP_STATE && alarmEnabled == TRUE) {
-                processByte(A, C_RR(next), C_REJ(tramaI), &aCheck, &cCheck, &state);
+                // Enquanto o alarme não tiver disparado e estado não for o final, processa os bytes da porta série (um de cada vez)
+                processByte(A, C_RR(next), C_REJ(tramaI), &aCheck, &cCheck, &state);  // espera um RR ou REJ
             }
 
             if (state == STOP_STATE) {
+                // O estado final foi alcançado, pelo que o alarme pode ser desativado
                 alarm(0);
                 alarmEnabled = FALSE;
             } else {
-                // timeout
+                // O alarme tocou, pelo que ocorreu timeout e deve haver retransmissão (se ainda não tiver sido excedido o número máximo de tentativas)
                 tries--;
                 continue;
             }
 
             // Interpretação da Resposta
             if (cCheck == C_RR(next)) {
+                // O frame enviado foi recebido e aceite - o recetor está pronto para receber o próximo frame
                 accepetedCheck = TRUE;
                 tramaI = next;
             } else if (cCheck == C_REJ(tramaI)) {
+                // O frame enviado foi rejeitado - deve ser retransmitido (se ainda não tiver sido excedido o número máximo de tentativas)
                 rejectedCheck = TRUE;
             }
         }
     } while (tries >= 0 && accepetedCheck == FALSE);
 
     if (state != STOP_STATE) {
-        printf("LLWRITE: Tx did not receive answer from Rx\n");
+        // Foi excedido o número máximo de tentativas de retransmissão
+        printf("LLWRITE - não foi recebida resposta\n");
         return -1;
     }
 
@@ -334,24 +344,28 @@ int llread(unsigned char *packet) {
     int size;
 
     while (state != BCC_OK_STATE) {
+        // Enquanto o estado não for o BCC OK, processa os bytes da porta série (um de cada vez)
         processByte(A, N(0), N(1), &aCheck, &cCheck, &state);
     }
 
     if (cCheck != N(tramaI)) {
-        // recebeu trama que não estava à espera
+        // Recebeu uma trama de que não estava à espera (duplicada)
         while (byteRead != FLAG) {
-            // ignora - limpa a porta série
+            // Lê os bytes da porta série (um de cada vez), mas ignora-os - apenas para limpar
             read(fd, &byteRead, sizeof(byteRead));
         }
-        // responde a indicar qual é a trama que está pronto para receber
+        // Responde com a indicação de qual é o índice da trama que está pronto para receber
         unsigned char n = C_RR(tramaI);
         unsigned char rr[5] = {FLAG, A, n, A ^ n, FLAG};
+        printLL("LL WRITE - RR enviado", rr, sizeof(rr));  // DEBUG
         write(fd, rr, sizeof(rr));
         return -1;
     }
 
     while (state != STOP_STATE) {
+        // Enquanto o estado não for o final, processa os bytes da porta série (um de cada vez)
         if (state == BCC_OK_STATE && read(fd, &byteRead, sizeof(byteRead)) == sizeof(byteRead)) {
+            // Destuffing dos dados e do BCC2
             if (escFound) {
                 if (byteRead == FLAG_ESCAPED)
                     packet[index++] = FLAG;
@@ -362,26 +376,29 @@ int llread(unsigned char *packet) {
             } else if (byteRead == ESC) {
                 escFound = TRUE;
             } else if (byteRead == FLAG) {
-                size = index + 5;  // F A C BCC1 F
+                size = index + 5;  // 5 -> F A C BCC1 F
                 unsigned char bcc2 = packet[index - 1];
                 index--;
-                packet[index] = '\0';
-                printLL("Recetor recebeu: ", packet, index);
+                packet[index] = '\0';  // retira o BCC2 do pacote de dados
+                printLL("LLWRITE - pacote recebido", packet, index);
                 unsigned char bcc2Acc = packet[0];
                 for (int i = 1; i < index; i++) {
+                    // Cálculo do BCC2
                     bcc2Acc ^= packet[i];
                 }
                 if (bcc2 == bcc2Acc) {
-                    // success
+                    // O valor de BCC2 está correto, pelo que a trama foi recebida com sucesso e o recetor está pronto para a próxima
                     tramaI = (tramaI + 1) % 2;
                     unsigned char n = C_RR(tramaI);
                     unsigned char rr[5] = {FLAG, A, n, A ^ n, FLAG};
+                    printLL("LLWRITE - RR enviado", rr, sizeof(rr));  // DEBUG
                     write(fd, rr, sizeof(rr));
                     state = STOP_STATE;
                 } else {
-                    // error
+                    // O valor de BCC está incorreto, pelo que a trama deve ser retransmitida
                     unsigned char n = C_REJ(tramaI);
                     unsigned char rej[5] = {FLAG, A, n, A ^ n, FLAG};
+                    printLL("LLWRITE - REJ enviado", rej, sizeof(rej));  // DEBUG
                     write(fd, rej, sizeof(rej));
                     state = STOP_STATE;
                     return -1;
@@ -414,7 +431,7 @@ int llclose(int showStatistics) {
             alarmEnabled = TRUE;
             while (alarmEnabled == TRUE && state != STOP_STATE) {
                 // Enquanto o alarme não tiver disparado e estado não for o final, processa os bytes da porta série (um de cada vez)
-                processByte(A_CLOSE, C_DISC, C_DISC, &aCheck, &cCheck, &state);  // Espera um DISC
+                processByte(A_CLOSE, C_DISC, C_DISC, &aCheck, &cCheck, &state);  // espera um DISC
             }
             if (state == STOP_STATE) {
                 // O estado final foi alcançado, pelo que o alarme pode ser desativado
@@ -434,15 +451,15 @@ int llclose(int showStatistics) {
 
         unsigned char ua[5] = {FLAG, A_CLOSE, C_UA, A_CLOSE ^ C_UA, FLAG};
         printLL("LLCLOSE - enviado UA", ua, sizeof(ua));  // DEBUG
-        write(fd, ua, sizeof(ua));
+        write(fd, ua, sizeof(ua));                        // quando receber o DISC, rsponde com UA
     } else if (role == LlRx) {
         while (state != STOP_STATE) {
-            // Processa os bytes da porta série (um de cada vez)
-            processByte(A, C_DISC, C_DISC, &aCheck, &cCheck, &state);  // Espera um DISC
+            // Enquanto o estado não for o final, processa os bytes da porta série (um de cada vez)
+            processByte(A, C_DISC, C_DISC, &aCheck, &cCheck, &state);  // espera um DISC
         }
         unsigned char disc[5] = {FLAG, A_CLOSE, C_DISC, A_CLOSE ^ C_DISC, FLAG};
         printLL("LLCLOSE - enviado DISC", disc, sizeof(disc));  // DEBUG
-        write(fd, disc, sizeof(disc));
+        write(fd, disc, sizeof(disc));                          // quando receber o DISC, responde com DISC
     } else {
         printf("Erro em connectionParameters.role\n");
         return -1;
