@@ -95,7 +95,7 @@ void sendDataPacket(int size, unsigned char *fileContent) {
     unsigned char *dataPacket = buildDataPacket(size, data, &dataPacketSize);
 
     if (llwrite(dataPacket, dataPacketSize) < 0) {
-        printf("Erro a enviar um pacote de dados com (%d = %d + 4) bytes\n", dataPacketSize, size);
+        printf("Erro a enviar um pacote de dados com %d bytes\n", dataPacketSize);
         exit(-1);
     }
 

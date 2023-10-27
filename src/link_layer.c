@@ -16,8 +16,6 @@
 // MISC
 #define _POSIX_SOURCE 1  // POSIX compliant source
 
-#define BAUDRATE B38400
-
 #define FLAG 0x7E
 #define A 0x03
 #define A_CLOSE 0x01
@@ -180,7 +178,7 @@ int llopen(LinkLayer connectionParameters) {
 
     memset(&newtio, 0, sizeof(newtio));
 
-    newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
+    newtio.c_cflag = connectionParameters.baudRate | CS8 | CLOCAL | CREAD;
     newtio.c_iflag = IGNPAR;
     newtio.c_oflag = 0;
     newtio.c_lflag = 0;
@@ -441,7 +439,7 @@ int llread(unsigned char *packet) {
                 unsigned char bcc2 = packet[index - 1];
                 index--;
                 packet[index] = '\0';  // retira o BCC2 do pacote de dados
-                printLL("LLWRITE - pacote recebido", packet, index);
+                printLL("LLWRITE - pacote recebido", packet, index);  // DEBUG
                 unsigned char bcc2Acc = packet[0];
                 for (int i = 1; i < index; i++) {
                     // Cálculo do BCC2
