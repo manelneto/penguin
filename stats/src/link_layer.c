@@ -73,16 +73,32 @@ int totalEscStuffed = 0;
 // Imprime "Link Layer" seguido do título e do conteúdo
 void printLL(char *title, unsigned char *content, int contentSize) {
     // DEBUG
-    printf("\nLink Layer\n");
+    /*printf("\nLink Layer\n");
     for (int i = 0; title[i] != '\0'; i++) printf("%c", title[i]);
     printf("\n");
     for (int i = 0; i < contentSize; i++) printf("0x%x ", content[i]);
-    printf("\n");
+    printf("\n");*/
 }
 
 // Converte int em speed_t
 speed_t get_baudrate(int baudrate) {
     switch (baudrate) {
+        case 50:
+            return B50;
+        case 75:
+            return B75;
+        case 110:
+            return B110;
+        case 134:
+            return B134;
+        case 150:
+            return B150;
+        case 200:
+            return B200;
+        case 300:
+            return B300;
+        case 600:
+            return B600;
         case 1200:
             return B1200;
         case 2400:
@@ -99,6 +115,32 @@ speed_t get_baudrate(int baudrate) {
             return B57600;
         case 115200:
             return B115200;
+        case 230400:
+            return B230400;
+        case 460800:
+            return B460800;
+        case 500000:
+            return B500000;
+        case 576000:
+            return B576000;
+        case 921600:
+            return B921600;
+        case 1000000:
+            return B1000000;
+        case 1152000:
+            return B1152000;
+        case 1500000:
+            return B1500000;
+        case 2000000:
+            return B2000000;
+        case 2500000:
+            return B2500000;
+        case 3000000:
+            return B3000000;
+        case 3500000:
+            return B3500000;
+        case 4000000:
+            return B4000000;
         default:
             return B0;
     }
@@ -277,6 +319,9 @@ int llopen(LinkLayer connectionParameters) {
     return 1;
 }
 
+float totalTprop = 0.0;
+float nTprop = 0.0;
+
 ////////////////////////////////////////////////
 // LLWRITE
 ////////////////////////////////////////////////
@@ -350,6 +395,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
     int tries = nRetransmissions;
 
     do {
+        clock_t startTprop = clock();
         printLL("LL WRITE - frame enviado", frame, size);  // DEBUG
         totalTramas++;
         totalTramasI++;
@@ -386,6 +432,10 @@ int llwrite(const unsigned char *buf, int bufSize) {
                 rejectedCheck = TRUE;
             }
         }
+        clock_t endTprop = clock();
+        float seconds = (float)(endTprop - startTprop) / CLOCKS_PER_SEC;
+        totalTprop += seconds;
+        nTprop += 1.0;
     } while (tries >= 0 && accepetedCheck == FALSE);
 
     if (state != STOP_STATE) {
@@ -399,6 +449,9 @@ int llwrite(const unsigned char *buf, int bufSize) {
     free(frame);
     return size;
 }
+
+float totalTframe = 0.0;
+float nTframe = 0.0;
 
 ////////////////////////////////////////////////
 // LLREAD
@@ -420,7 +473,7 @@ int llread(unsigned char *packet) {
         // Enquanto o estado não for o BCC OK, processa os bytes da porta série (um de cada vez)
         processByte(A, N(0), N(1), &aCheck, &cCheck, &state);
     }
-
+    clock_t startTframe = clock();
     if (cCheck != N(tramaI)) {
         // Recebeu uma trama de que não estava à espera (duplicada)
         totalDuplicados++;
@@ -498,6 +551,12 @@ int llread(unsigned char *packet) {
             }
         }
     }
+
+    clock_t endTframe = clock();
+    float seconds = (float)(endTframe - startTframe) / CLOCKS_PER_SEC;
+    totalTframe += seconds;
+    nTframe += 1.0;
+    
     return size;
 }
 
@@ -550,6 +609,9 @@ int llclose(int showStatistics) {
         totalTramasSU++;
         totalUA++;
         write(fd, ua, sizeof(ua));  // quando receber o DISC, rsponde com UA
+        printf("\nTotal Tprop: %f\n", totalTprop); 
+        printf("N Tprop: %f\n", nTprop); 
+        printf("Média Tprop: %f\n", totalTprop/nTprop);  
     } else if (role == LlRx) {
         while (state != STOP_STATE) {
             // Enquanto o estado não for o final, processa os bytes da porta série (um de cada vez)
@@ -561,6 +623,9 @@ int llclose(int showStatistics) {
         totalTramasSU++;
         totalDISC++;
         write(fd, disc, sizeof(disc));  // quando receber o DISC, responde com DISC
+        printf("\nTotal Tframe: %f\n", totalTframe);
+        printf("N Tframe: %f\n", nTframe);
+        printf("Média Tframe: %f\n", totalTframe/nTframe);        
     } else {
         printf("Erro em connectionParameters.role\n");
         return -1;
